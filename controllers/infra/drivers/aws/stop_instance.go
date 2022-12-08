@@ -24,6 +24,8 @@ import (
 	"fmt"
 
 	v1 "github.com/labring/sealos/controllers/infra/api/v1"
+	"github.com/labring/sealos/controllers/infra/common/utils"
+	"github.com/labring/sealos/pkg/utils/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -37,6 +39,9 @@ type EC2StopInstancesAPI interface {
 	StopInstances(ctx context.Context,
 		params *ec2.StopInstancesInput,
 		optFns ...func(*ec2.Options)) (*ec2.StopInstancesOutput, error)
+	DeleteKeyPair(ctx context.Context,
+		params *ec2.DeleteKeyPairInput,
+		optFns ...func(*ec2.Options)) (*ec2.DeleteKeyPairOutput, error)
 }
 
 // StopInstance stops an Amazon Elastic Compute Cloud (Amazon EC2) instance.
@@ -83,30 +88,77 @@ func (d Driver) stopInstances(hosts *v1.Hosts) error {
 func (d Driver) deleteInstances(hosts *v1.Hosts) error {
 	client := d.Client
 	instanceID := make([]string, hosts.Count)
-	disksID := make([]string, 0)
 	for i := 0; i < hosts.Count; i++ {
 		metadata := hosts.Metadata[i]
 		instanceID[i] = metadata.ID
-		disksID = append(disksID, metadata.DiskID...)
+	}
+
+	//if err := d.DeleteVolume(disksID); err != nil {
+	//	return fmt.Errorf("aws stop instance failed(delete volume):, %v", err)
+	//}
+
+	// first query for the instance status that can be stopped
+	describeInputStatus := &ec2.DescribeInstanceStatusInput{
+		InstanceIds: instanceID,
+	}
+	ins, err := GetInstanceStatus(context.TODO(), client, describeInputStatus)
+	if err != nil {
+		//todo
+		return fmt.Errorf("aws get instance status failed: %s, %v", instanceID, err)
+	}
+	if len(ins.InstanceStatuses) == 0 {
+		logger.Info("can't get any instance status, no need to delete...")
+		return nil
+	}
+	for _, instanceStatus := range ins.InstanceStatuses {
+		logger.Info("Deleting instance %s: from status: %s\n", *instanceStatus.InstanceId, instanceStatus.InstanceState.Name)
+		if instanceStatus.InstanceState.Name == "stopped" || instanceStatus.InstanceState.Name == "stopping" {
+			instanceID = utils.RemoveString(instanceID, *instanceStatus.InstanceId)
+		}
 	}
 	input := &ec2.StopInstancesInput{
 		InstanceIds: instanceID,
 	}
+	_, err = StopInstance(context.TODO(), client, input)
+	if err != nil {
+		return fmt.Errorf("aws stop instance failed: %s, %v", instanceID, err)
+	}
+	for _, instanceStatus := range ins.InstanceStatuses {
+		if instanceStatus.InstanceState.Name == "terminated" {
+			instanceID = utils.RemoveString(instanceID, *instanceStatus.InstanceId)
+		}
+	}
 	terminateInput := &ec2.TerminateInstancesInput{
 		InstanceIds: instanceID,
 		DryRun:      aws.Bool(false),
-	}
-	if err := d.DeleteVolume(disksID); err != nil {
-		return fmt.Errorf("aws stop instance failed(delete volume):, %v", err)
-	}
-	_, err := StopInstance(context.TODO(), client, input)
-	if err != nil {
-		return fmt.Errorf("aws stop instance failed: %s, %v", instanceID, err)
 	}
 	_, err = client.TerminateInstances(context.TODO(), terminateInput)
 	if err != nil {
 		return fmt.Errorf("aws terminate instance failed: %s, %v", instanceID, err)
 	}
 
+	return nil
+}
+func DelKeyPair(c context.Context, api EC2StopInstancesAPI, input *ec2.DeleteKeyPairInput) (*ec2.DeleteKeyPairOutput, error) {
+	return api.DeleteKeyPair(c, input)
+}
+
+func (d Driver) deleteKeyPair(infra *v1.Infra) error {
+	if infra.Spec.SSH.PkName == "" {
+		return nil
+	}
+
+	mutex.Lock()
+	defer mutex.Unlock()
+	client := d.Client
+	input := &ec2.DeleteKeyPairInput{
+		KeyName: &infra.Spec.SSH.PkName,
+	}
+
+	_, err := DelKeyPair(context.TODO(), client, input)
+	if err != nil {
+		return fmt.Errorf("delete key pair error:%v", err)
+	}
+	logger.Info("delete key pair success", "keyName", *input.KeyName)
 	return nil
 }
