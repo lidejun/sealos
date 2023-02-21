@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/containers/buildah"
@@ -48,6 +49,71 @@ func flagChanged(c *cobra.Command, name string) bool {
 		return true
 	}
 	return false
+}
+
+func setDefaultFlags(c *cobra.Command) error {
+	return setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag)
+}
+
+func setDefaultFlagsWithSetters(c *cobra.Command, setters ...func(*cobra.Command) error) error {
+	for i := range setters {
+		if err := setters[i](c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setDefaultTLSVerifyFlag(c *cobra.Command) error {
+	return setDefaultFlagIfNotChanged(c, "tls-verify", "false")
+}
+
+func getArchFromFlag(c *cobra.Command) string {
+	arch, err := c.Flags().GetString("arch")
+	if err != nil {
+		return runtime.GOARCH
+	}
+	return arch
+}
+
+func getOSFromFlag(c *cobra.Command) string {
+	oss, err := c.Flags().GetString("os")
+	if err != nil {
+		return runtime.GOOS
+	}
+	return oss
+}
+
+func getVariantFromFlags(c *cobra.Command) string {
+	variant, err := c.Flags().GetString("variant")
+	if err != nil {
+		return ""
+	}
+	return variant
+}
+
+func getTagsFromFlags(c *cobra.Command) []string {
+	tag, err := c.Flags().GetStringArray("tag")
+	if err != nil {
+		return []string{}
+	}
+	return tag
+}
+
+func setDefaultFlagIfNotChanged(c *cobra.Command, k, v string) error {
+	if fs := c.Flag(k); fs != nil && !fs.Changed {
+		if err := c.Flags().Set(k, v); err != nil {
+			return fmt.Errorf("failed to set --%s default to %s: %v", k, v, err)
+		}
+	}
+	return nil
+}
+
+// setDefaultSystemContext use only when tls-verify flag not present.
+func setDefaultSystemContext(sc *types.SystemContext) {
+	sc.DockerInsecureSkipTLSVerify = types.NewOptionalBool(true)
+	sc.OCIInsecureSkipTLSVerify = true
+	sc.DockerDaemonInsecureSkipTLSVerify = true
 }
 
 func bailOnError(err error, format string, a ...interface{}) { // nolint: golint,goprintffuncname
@@ -89,7 +155,7 @@ func getStore(c *cobra.Command) (storage.Store, error) {
 	// Differently, allow the mount if we are already in a userns, as the mount point will still
 	// be accessible once "buildah mount" exits.
 	if os.Geteuid() != 0 && options.GraphDriverName != "vfs" {
-		return nil, fmt.Errorf("cannot mount using driver %s in rootless mode. You need to run it in a `buildah unshare` session", options.GraphDriverName)
+		return nil, fmt.Errorf("cannot mount using driver %s in rootless mode. You need to run it in a `%s unshare` session", options.GraphDriverName, c.Root().Name())
 	}
 
 	if len(globalFlagResults.UserNSUID) > 0 {
@@ -176,21 +242,6 @@ func openBuilder(ctx context.Context, store storage.Store, name string) (builder
 
 func openBuilders(store storage.Store) (builders []*buildah.Builder, err error) {
 	return buildah.OpenAllBuilders(store)
-}
-
-func openImage(ctx context.Context, sc *types.SystemContext, store storage.Store, name string) (builder *buildah.Builder, err error) {
-	options := buildah.ImportFromImageOptions{
-		Image:         name,
-		SystemContext: sc,
-	}
-	builder, err = buildah.ImportBuilderFromImage(ctx, store, options)
-	if err != nil {
-		return nil, err
-	}
-	if builder == nil {
-		return nil, errors.New("mocking up build configuration")
-	}
-	return builder, nil
 }
 
 // getContext returns a context.TODO

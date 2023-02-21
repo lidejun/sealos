@@ -8,6 +8,7 @@
 [![Awesome](https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg)](https://github.com/labring/sealos)
 [![Open in Dev Container](https://img.shields.io/static/v1?label=Dev%20Container&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/labring/sealos)
 [![Build Status](https://github.com/labring/sealos/actions/workflows/release.yml/badge.svg)](https://github.com/labring/sealos/actions)
+[![](https://img.shields.io/docker/pulls/labring/kubernetes)](https://hub.docker.com/r/labring/kubernetes)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Flabring%2Fsealos.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Flabring%2Fsealos?ref=badge_shield)
 [![codecov](https://codecov.io/gh/labring/sealos/branch/main/graph/badge.svg?token=e41ZDcj06N)](https://codecov.io/gh/labring/sealos)
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fpostwoman.io&logo=Postwoman)](https://sealyun.com)
@@ -17,9 +18,11 @@
   </p>
 </div>
 
+[![discord](https://theme.zdassets.com/theme_assets/678183/cc59daa07820943e943c2fc283b9079d7003ff76.svg)](https://discord.gg/7bPNZfsjJu)
+
 ---
 
-[Docs](https://www.sealos.io/docs/Intro) | [简体中文](https://www.sealos.io/zh-Hans/docs/Intro)
+[Docs](https://www.sealos.io/docs/Intro) | [简体中文](https://www.sealos.io/zh-Hans/docs/Intro) ｜ [roadmap](https://github.com/orgs/labring/projects/4/views/9)
 
 ## Run a Kubernetes cluster
 
@@ -38,7 +41,7 @@
 
 [Online demo](https://cloud.sealos.io)
 
-[Learning sealos by examples](https://www.sealos.io/docs/examples/use-sealos-cloud-hello-world)
+[sealos cloud DOCS](https://www.sealos.io/docs/cloud/Intro)
 
 Use the cloud like a PC desktop, Freely run and uninstall any distributed applications:
 
@@ -93,8 +96,8 @@ Here `kubernetes:v1.24.0` and `calico:v3.24.1` are the cluster images in the reg
 
 ```shell script
 # Download and install sealos. sealos is a golang binary so you can just download and copy to bin. You may also download it from release page.
-$ wget  https://github.com/labring/sealos/releases/download/v4.1.3/sealos_4.1.3_linux_amd64.tar.gz  && \
-    tar -zxvf sealos_4.1.3_linux_amd64.tar.gz sealos &&  chmod +x sealos && mv sealos /usr/bin 
+$ wget  https://github.com/labring/sealos/releases/download/v4.1.4/sealos_4.1.4_linux_amd64.tar.gz  && \
+    tar -zxvf sealos_4.1.4_linux_amd64.tar.gz sealos &&  chmod +x sealos && mv sealos /usr/bin 
 # Create a cluster
 $ sealos run labring/kubernetes:v1.25.0 labring/helm:v3.8.2 labring/calico:v3.24.1 \
      --masters 192.168.64.2,192.168.64.22,192.168.64.20 \
@@ -132,7 +135,7 @@ And now everything is ready.
 ## Use cri-docker image
 
 ```shell
-sealos run labring/kubernetes-docker:v1.20.5-4.1.3 labring/calico:v3.24.1 \
+sealos run labring/kubernetes-docker:v1.20.8-4.1.4 labring/calico:v3.22.1 \
      --masters 192.168.64.2,192.168.64.22,192.168.64.20 \
      --nodes 192.168.64.21,192.168.64.19 -p [your-ssh-passwd]
 ```
@@ -141,7 +144,10 @@ sealos run labring/kubernetes-docker:v1.20.5-4.1.3 labring/calico:v3.24.1 \
 
 - [Contribution Guidelines](./CONTRIBUTING.md)
 - [Development Guide](./DEVELOPGUIDE.md)
-- [sealosAction](https://github.com/marketplace/actions/auto-install-k8s-using-sealos)
+- [sealosAction](https://github.com/labring/sealos-action)
+- [Bug Verify Example](https://github.com/labring-actions/bug-verify)
+- [Application Image](https://github.com/labring-actions/cluster-image)
+- [Rootfs Image](https://github.com/labring-actions/runtime)
 - [sealos 3.0(older version)](https://github.com/labring/sealos/tree/release-v3.3.9#readme) For older version users. Note that sealos 4.0 includes significant improvements, so please upgrade ASAP.
 - [buildah](https://github.com/containers/buildah) Capabilities of buildah is widely used in sealos 4.0 to make cluster images compatible with container images and docker registry.
 

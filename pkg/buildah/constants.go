@@ -15,7 +15,19 @@
 package buildah
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/containers/buildah/define"
+	"github.com/containers/image/v5/directory"
+	"github.com/containers/image/v5/docker"
+	"github.com/containers/image/v5/docker/archive"
+	ociarchive "github.com/containers/image/v5/oci/archive"
+	"github.com/containers/image/v5/oci/layout"
+	"github.com/containers/image/v5/openshift"
+	"github.com/containers/image/v5/sif"
+	"github.com/containers/image/v5/storage"
+	"github.com/containers/image/v5/tarball"
 )
 
 const (
@@ -23,7 +35,16 @@ const (
 	DockerArchive string = "docker-archive"
 )
 
-var DefaultTransport = DockerArchive
+var DefaultTransport = OCIArchive
+
+func ValidateTransport(s string) error {
+	switch s {
+	case OCIArchive, DockerArchive:
+	default:
+		return fmt.Errorf("unsupported transport %s, available options are %s", s, strings.Join([]string{OCIArchive, DockerArchive}, ", "))
+	}
+	return nil
+}
 
 const (
 	DisableAutoRootless = "DISABLE_AUTO_ROOTLESS"
@@ -35,3 +56,26 @@ const (
 	PullIfNewer   = define.PullIfNewer
 	PullNever     = define.PullNever
 )
+
+var (
+	TransportDir               = directory.Transport.Name()
+	TransportDocker            = docker.Transport.Name()
+	TransportDockerArchive     = archive.Transport.Name()
+	TransportOCIArchive        = ociarchive.Transport.Name()
+	TransportOCI               = layout.Transport.Name()
+	TransportAtomic            = openshift.Transport.Name()
+	TransportSif               = sif.Transport.Name()
+	TransportTarball           = tarball.Transport.Name()
+	TransportContainersStorage = storage.Transport.Name()
+)
+
+func FormatReferenceWithTransportName(tr string, ref string) string {
+	switch tr {
+	case TransportAtomic, TransportContainersStorage, TransportDir, TransportDockerArchive, TransportOCI, TransportOCIArchive, TransportTarball, TransportSif:
+		return tr + ":" + ref
+	case TransportDocker:
+		return tr + "://" + ref
+	default:
+		panic(fmt.Errorf("unknown transport %s", tr))
+	}
+}

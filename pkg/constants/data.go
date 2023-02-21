@@ -42,11 +42,13 @@ const (
 	DefaultJoinMasterKubeadmFileName = "kubeadm-join-master.yaml"
 	DefaultJoinNodeKubeadmFileName   = "kubeadm-join-node.yaml"
 	DefaultKubeadmTokenFileName      = "kubeadm-token.json"
+	DefaultUpdateKubeadmFileName     = "kubeadm-update.yml"
 	DefaultRootfsKubeadmFileName     = "kubeadm.yml"
 	DataDirName                      = "rootfs"
 	EtcDirName                       = "etc"
 	ChartsDirName                    = "charts"
 	ManifestsDirName                 = "manifests"
+	BinDirName                       = "bin"
 	RegistryDirName                  = "registry"
 	ImagesDirName                    = "images"
 	ImageShimDirName                 = "shim"
@@ -75,6 +77,10 @@ func GetAppWorkDir(clusterName, applicationName string) string {
 	return filepath.Join(DataPath(), clusterName, "applications", applicationName, "workdir")
 }
 
+func GetRootWorkDir(clusterName string) string {
+	return filepath.Join(DataPath(), clusterName, "rootfs")
+}
+
 func IsRegistryDir(entry fs.DirEntry) bool {
 	return entry.IsDir() && entry.Name() == RegistryDirName
 }
@@ -95,6 +101,7 @@ type Data interface {
 
 	RootFSCharsPath() string
 	RootFSManifestsPath() string
+	RootFSBinPath() string
 	RootFSSealctlPath() string
 }
 
@@ -123,6 +130,10 @@ func (d *data) RootFSCharsPath() string {
 
 func (d *data) RootFSManifestsPath() string {
 	return filepath.Join(d.RootFSPath(), ManifestsDirName)
+}
+
+func (d *data) RootFSBinPath() string {
+	return filepath.Join(d.RootFSPath(), BinDirName)
 }
 
 func (d *data) EtcPath() string {

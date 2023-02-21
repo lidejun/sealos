@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/labring/sealos/pkg/buildah"
 	"github.com/labring/sealos/pkg/constants"
 	"github.com/labring/sealos/pkg/utils/file"
 	"github.com/labring/sealos/pkg/utils/logger"
@@ -44,7 +45,9 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		if rootCmd.SilenceErrors {
+			fmt.Println(err)
+		}
 		os.Exit(1)
 	}
 }
@@ -57,6 +60,8 @@ func init() {
 	_ = fs.MarkHidden("cluster-root")
 	fs.StringVar(&runtimeRootDir, "sealos-root", constants.DefaultRuntimeRootDir, "root directory for sealos actions")
 	_ = fs.MarkHidden("sealos-root")
+	// add unrelated command names that don't required buildah sdk.
+	buildah.AddUnrelatedCommandNames("cert", "status", "docs", "exec", "scp", "version")
 }
 
 func onBootOnDie() {

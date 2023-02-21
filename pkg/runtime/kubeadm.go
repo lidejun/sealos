@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/labring/sealos/pkg/constants"
@@ -114,14 +113,20 @@ func (k *KubeadmRuntime) getCGroupDriver(node string) (string, error) {
 }
 
 func (k *KubeadmRuntime) MergeKubeadmConfig() error {
+	k.ImageKubeVersion = k.getKubeVersionFromImage()
+	for _, fn := range []string{
+		"",                          // generate default kubeadm configs
+		k.getDefaultKubeadmConfig(), // merging from predefined path of file if file exists
+	} {
+		if err := k.Merge(fn); err != nil {
+			return err
+		}
+	}
+	// merge from clusterfile
 	if k.Config.ClusterFileKubeConfig != nil {
 		if err := k.LoadFromClusterfile(k.Config.ClusterFileKubeConfig); err != nil {
 			return fmt.Errorf("failed to load kubeadm config from clusterfile: %v", err)
 		}
-	}
-	k.ImageKubeVersion = k.getKubeVersionFromImage()
-	if err := k.Merge(k.getDefaultKubeadmConfig()); err != nil {
-		return fmt.Errorf("failed to merge kubeadm config: %v", err)
 	}
 	k.setKubeadmAPIVersion()
 	return k.validateVIP(k.getVip())
@@ -149,7 +154,6 @@ func (k *KubeadmRuntime) getClusterName() string {
 	return k.Cluster.Name
 }
 
-// todo: maybe make this virtual IP configurable?
 func (k *KubeadmRuntime) getVip() string {
 	return k.getVIPFromImage()
 }
@@ -299,14 +303,6 @@ func (k *KubeadmRuntime) setJoinAdvertiseAddress(advertiseAddress string) {
 	}
 	k.JoinConfiguration.ControlPlane.LocalAPIEndpoint.AdvertiseAddress = advertiseAddress
 }
-func (k *KubeadmRuntime) setDefaultEtcdData(etcdData string) {
-	if k.ClusterConfiguration.Etcd.Local == nil {
-		k.ClusterConfiguration.Etcd.Local = &kubeadm.LocalEtcd{}
-	}
-	if k.ClusterConfiguration.Etcd.Local.DataDir == "" {
-		k.ClusterConfiguration.Etcd.Local.DataDir = etcdData
-	}
-}
 
 func (k *KubeadmRuntime) cleanJoinLocalAPIEndPoint() {
 	k.JoinConfiguration.ControlPlane = nil
@@ -320,11 +316,12 @@ func (k *KubeadmRuntime) setCgroupDriver(cGroup string) {
 	k.KubeletConfiguration.CgroupDriver = cGroup
 }
 
-func (k *KubeadmRuntime) setCertSANS() {
+func (k *KubeadmRuntime) setCertSANS(certs []string) {
 	var certSans []string
 	certSans = append(certSans, "127.0.0.1")
 	certSans = append(certSans, k.getAPIServerDomain())
 	certSans = append(certSans, k.getVip())
+	certSans = append(certSans, certs...)
 	certSans = append(certSans, k.getMasterIPList()...)
 	certSans = append(certSans, k.getCertSANS()...)
 	certSans = strings2.RemoveDuplicate(certSans)
@@ -340,14 +337,6 @@ func (k *KubeadmRuntime) getEtcdDataDir() string {
 		return defaultEtcdDataDir
 	}
 	return k.ClusterConfiguration.Etcd.Local.DataDir
-}
-
-func getEtcdEndpointsWithHTTPSPrefix(masters []string) string {
-	var tmpSlice []string
-	for _, ip := range masters {
-		tmpSlice = append(tmpSlice, fmt.Sprintf("https://%s:2379", ip))
-	}
-	return strings.Join(tmpSlice, ",")
 }
 
 func (k *KubeadmRuntime) getCRISocket(node string) (string, error) {
@@ -366,30 +355,41 @@ func (k *KubeadmRuntime) setCRISocket(criSocket string) {
 }
 
 func (k *KubeadmRuntime) generateInitConfigs() ([]byte, error) {
-	if err := k.MergeKubeadmConfig(); err != nil {
-		return nil, err
+	setCGroupDriverAndSocket := func(krt *KubeadmRuntime) error {
+		return krt.setCGroupDriverAndSocket(krt.getMaster0IPAndPort())
 	}
-	if err := k.setCGroupDriverAndSocket(k.getMaster0IPAndPort()); err != nil {
-		return nil, err
-	}
-	k.setInitAdvertiseAddress(k.getMaster0IP())
-	k.setControlPlaneEndpoint(fmt.Sprintf("%s:%d", k.getAPIServerDomain(), k.getAPIServerPort()))
-	if k.APIServer.ExtraArgs == nil {
-		k.APIServer.ExtraArgs = make(map[string]string)
-	}
-	k.APIServer.ExtraArgs["etcd-servers"] = getEtcdEndpointsWithHTTPSPrefix(k.getMasterIPList())
-	k.setDefaultEtcdData("/var/lib/etcd")
-	k.IPVS.ExcludeCIDRs = append(k.KubeProxyConfiguration.IPVS.ExcludeCIDRs, fmt.Sprintf("%s/32", k.getVip()))
-	k.IPVS.ExcludeCIDRs = strings2.RemoveDuplicate(k.IPVS.ExcludeCIDRs)
 
-	if err := k.convertKubeadmVersion(); err != nil {
-		return nil, errors.Wrap(err, "convert kubeadm version failed")
+	if err := k.ConvertInitConfigConversion(setCGroupDriverAndSocket); err != nil {
+		return nil, err
 	}
 
 	return yaml.MarshalYamlConfigs(&k.conversion.InitConfiguration,
 		&k.conversion.ClusterConfiguration,
 		&k.conversion.KubeletConfiguration,
 		&k.conversion.KubeProxyConfiguration)
+}
+
+func (k *KubeadmRuntime) ConvertInitConfigConversion(fns ...func(*KubeadmRuntime) error) error {
+	if err := k.MergeKubeadmConfig(); err != nil {
+		return err
+	}
+	for _, fn := range fns {
+		if err := fn(k); err != nil {
+			return err
+		}
+	}
+	k.setInitAdvertiseAddress(k.getMaster0IP())
+	k.setControlPlaneEndpoint(fmt.Sprintf("%s:%d", k.getAPIServerDomain(), k.getAPIServerPort()))
+	if k.APIServer.ExtraArgs == nil {
+		k.APIServer.ExtraArgs = make(map[string]string)
+	}
+	k.IPVS.ExcludeCIDRs = append(k.KubeProxyConfiguration.IPVS.ExcludeCIDRs, fmt.Sprintf("%s/32", k.getVip()))
+	k.IPVS.ExcludeCIDRs = strings2.RemoveDuplicate(k.IPVS.ExcludeCIDRs)
+
+	if err := k.convertKubeadmVersion(); err != nil {
+		return errors.Wrap(err, "convert kubeadm version failed")
+	}
+	return nil
 }
 
 func (k *KubeadmRuntime) convertKubeadmVersion() error {
@@ -507,11 +507,13 @@ func (k *KubeadmRuntime) setCGroupDriverAndSocket(node string) error {
 	if err != nil {
 		return err
 	}
+	logger.Debug("node: %s , criSocket: %s", node, criSocket)
 	k.setCRISocket(criSocket)
 	cGroupDriver, err := k.getCGroupDriver(node)
 	if err != nil {
 		return err
 	}
+	logger.Debug("node: %s , cGroupDriver: %s", node, cGroupDriver)
 	k.setCgroupDriver(cGroupDriver)
 	return nil
 }

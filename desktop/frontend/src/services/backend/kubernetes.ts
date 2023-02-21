@@ -186,3 +186,79 @@ export async function UpdateCRD(
     options
   );
 }
+
+export async function GetService(
+  kc: k8s.KubeConfig,
+  name: string,
+  namespace: string
+): Promise<{
+  response: http.IncomingMessage;
+  body: k8s.V1Service;
+}> {
+  return kc.makeApiClient(k8s.CoreV1Api).readNamespacedService(name, namespace);
+}
+
+export async function GetSecret(
+  kc: k8s.KubeConfig,
+  name: string,
+  namespace: string
+): Promise<{
+  response: http.IncomingMessage;
+  body: k8s.V1Secret;
+}> {
+  return kc.makeApiClient(k8s.CoreV1Api).readNamespacedSecret(name, namespace);
+}
+
+export async function ListSecret(
+  kc: k8s.KubeConfig,
+  namespace: string,
+  fieldSelector: string
+): Promise<{
+  response: http.IncomingMessage;
+  body: k8s.V1Secret;
+}> {
+  return kc
+    .makeApiClient(k8s.CoreV1Api)
+    .listNamespacedSecret(namespace, undefined, undefined, undefined, fieldSelector);
+}
+
+export async function ListClusterObject(
+  kc: k8s.KubeConfig,
+  meta: CRDMeta,
+  labelSelector: string,
+  limit: number,
+  _continue: string
+): Promise<{
+  response: http.IncomingMessage;
+  body: object;
+}> {
+  return kc
+    .makeApiClient(k8s.CustomObjectsApi)
+    .listClusterCustomObject(
+      meta.group,
+      meta.version,
+      meta.plural,
+      undefined,
+      undefined,
+      _continue,
+      undefined,
+      labelSelector,
+      limit
+    );
+}
+
+export async function GetClusterObject(
+  kc: k8s.KubeConfig,
+  meta: CRDMeta,
+  name: string
+): Promise<{
+  response: http.IncomingMessage;
+  body: k8s.V1ResourceQuota;
+}> {
+  return kc.makeApiClient(k8s.CustomObjectsApi).getClusterCustomObject(
+    meta.group,
+    meta.version,
+    meta.plural,
+    name // resource name
+  );
+}

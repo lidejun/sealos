@@ -1,6 +1,6 @@
 module github.com/labring/sealos/controllers/imagehub
 
-go 1.19
+go 1.20
 
 require (
 	github.com/go-logr/logr v1.2.3
@@ -8,9 +8,9 @@ require (
 	github.com/onsi/ginkgo/v2 v2.1.6
 	github.com/onsi/gomega v1.20.1
 	github.com/pkg/errors v0.9.1
-	k8s.io/api v0.25.0
-	k8s.io/apimachinery v0.25.0
-	k8s.io/client-go v0.25.0
+	k8s.io/api v0.25.6
+	k8s.io/apimachinery v0.25.6
+	k8s.io/client-go v0.25.6
 	sigs.k8s.io/controller-runtime v0.13.0
 )
 

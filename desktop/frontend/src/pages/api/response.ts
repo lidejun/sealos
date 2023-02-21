@@ -42,6 +42,8 @@ const CommonResp = (
 
 const BadRequestResp = (resp?: NextApiResponse) =>
   CommonResp({ code: 400, message: 'Bad Request Method' }, resp);
+const BadAuthResp = (resp?: NextApiResponse) =>
+  CommonResp({ code: 401, message: 'authentication required' }, resp);
 const NotFoundResp = (resp?: NextApiResponse) =>
   CommonResp({ code: 404, message: 'Method Not Found' }, resp);
 const UnprocessableResp = (str: string, resp?: NextApiResponse) =>
@@ -54,12 +56,25 @@ const InternalErrorResp = (str: string, resp?: NextApiResponse) =>
 const JsonResp = (data: any, resp?: NextApiResponse) =>
   CommonResp({ code: 200, message: 'ok', data: data, statusCode: 200 }, resp);
 
+const CreatedJsonResp = (data: any, resp?: NextApiResponse) =>
+  CommonResp(
+    {
+      code: 201,
+      message: 'the resource has been created and needs to be requested again',
+      data: data,
+      statusCode: 201
+    },
+    resp
+  );
+
 export {
   BadRequestResp,
+  BadAuthResp,
   NotFoundResp,
   UnprocessableResp,
   MethodNotAllowedResp,
   InternalErrorResp,
   CommonResp,
-  JsonResp
+  JsonResp,
+  CreatedJsonResp
 };

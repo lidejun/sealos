@@ -150,8 +150,8 @@ func (c *ScaleProcessor) DeleteCheck(cluster *v2.Cluster) error {
 	logger.Info("Executing pipeline DeleteCheck in ScaleProcessor.")
 	var ips []string
 	ips = append(ips, cluster.GetMaster0IPAndPort())
-	ips = append(ips, c.MastersToDelete...)
-	ips = append(ips, c.NodesToDelete...)
+	//ips = append(ips, c.MastersToDelete...)
+	//ips = append(ips, c.NodesToDelete...)
 	err := checker.RunCheckList([]checker.Interface{checker.NewIPsHostChecker(ips)}, cluster, checker.PhasePre)
 	if err != nil {
 		return err
@@ -165,7 +165,8 @@ func (c *ScaleProcessor) PreProcess(cluster *v2.Cluster) error {
 	if err != nil {
 		return err
 	}
-	if err = SyncClusterStatus(cluster, c.Buildah, false); err != nil {
+	//cluster status might be overwriten by inappropriate usage, add mounts if loss.
+	if err = MountClusterImages(cluster, c.Buildah); err != nil {
 		return err
 	}
 	if c.IsScaleUp {
@@ -179,6 +180,9 @@ func (c *ScaleProcessor) PreProcess(cluster *v2.Cluster) error {
 		if err = yaml.MarshalYamlToFile(clusterPath, obj...); err != nil {
 			return err
 		}
+	}
+	if err = SyncClusterStatus(cluster, c.Buildah, false); err != nil {
+		return err
 	}
 	runTime, err := runtime.NewDefaultRuntime(cluster, c.ClusterFile.GetKubeadmConfig())
 	if err != nil {
@@ -227,17 +231,24 @@ func (c *ScaleProcessor) RunConfig(cluster *v2.Cluster) error {
 func (c *ScaleProcessor) MountRootfs(cluster *v2.Cluster) error {
 	logger.Info("Executing pipeline MountRootfs in ScaleProcessor.")
 	hosts := append(c.MastersToJoin, c.NodesToJoin...)
-	fs, err := filesystem.NewRootfsMounter(cluster.Status.Mounts)
+	// since app type images are only sent to the first master, in
+	// cluster scaling scenario we don't need to sent app images repeatedly.
+	// so filter out rootfs/patch type
+	fs, err := filesystem.NewRootfsMounter(filterNoneApplicationMounts(cluster.Status.Mounts))
 	if err != nil {
 		return err
 	}
-
 	return fs.MountRootfs(cluster, hosts)
 }
 
-func (c *ScaleProcessor) MirrorRegistry(cluster *v2.Cluster) error {
-	logger.Info("Executing pipeline MirrorRegistry in ScaleProcessor.")
-	return MirrorRegistry(cluster, cluster.Status.Mounts)
+func filterNoneApplicationMounts(images []v2.MountImage) []v2.MountImage {
+	ret := make([]v2.MountImage, 0)
+	for i := range images {
+		if images[i].Type != v2.AppImage {
+			ret = append(ret, images[i])
+		}
+	}
+	return ret
 }
 
 func (c *ScaleProcessor) Bootstrap(cluster *v2.Cluster) error {
@@ -253,8 +264,8 @@ func (c *ScaleProcessor) Bootstrap(cluster *v2.Cluster) error {
 	return bs.ApplyAddons(hosts...)
 }
 
-func NewScaleProcessor(clusterFile clusterfile.Interface, images v2.ImageList, masterToJoin, masterToDelete, nodeToJoin, nodeToDelete []string) (Interface, error) {
-	bder, err := buildah.New(clusterFile.GetCluster().Name)
+func NewScaleProcessor(clusterFile clusterfile.Interface, name string, images v2.ImageList, masterToJoin, masterToDelete, nodeToJoin, nodeToDelete []string) (Interface, error) {
+	bder, err := buildah.New(name)
 	if err != nil {
 		return nil, err
 	}

@@ -25,6 +25,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/labring/sealos/pkg/unshare"
 	"github.com/labring/sealos/pkg/utils/iputils"
 	"github.com/labring/sealos/pkg/utils/logger"
 )
@@ -60,31 +61,65 @@ func (s *SSH) connect(host string) (*ssh.Client, error) {
 	return ssh.Dial("tcp", addr, clientConfig)
 }
 
-func (s *SSH) Connect(host string) (*ssh.Client, *ssh.Session, error) {
-	client, err := s.connect(host)
-	if err != nil {
-		return nil, nil, err
-	}
-
+func newSession(client *ssh.Client) (*ssh.Session, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		_ = client.Close()
-		return nil, nil, err
+		return nil, err
 	}
-
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          0,     //disable echoing
 		ssh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
 		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
 	}
-
 	if err := session.RequestPty("xterm", 80, 40, modes); err != nil {
 		_ = session.Close()
 		_ = client.Close()
+		return nil, err
+	}
+	return session, nil
+}
+
+func (s *SSH) Connect(host string) (sshClient *ssh.Client, session *ssh.Session, err error) {
+	err = exponentialBackoffRetry(defaultMaxRetry, time.Millisecond*100, 2, func() error {
+		sshClient, session, err = s.newClientAndSession(host)
+		return err
+	}, isErrorWorthRetry)
+	return
+}
+
+func exponentialBackoffRetry(steps int, interval time.Duration, factor int,
+	fn func() error,
+	retryIfCertainError func(error) bool) error {
+	var err error
+	for i := 0; i < steps; i++ {
+		if i > 0 {
+			logger.Debug("retrying %s later due to error occur: %v", interval, err)
+			time.Sleep(interval)
+			interval *= time.Duration(factor)
+		}
+		if err = fn(); err != nil {
+			if retryIfCertainError(err) {
+				continue
+			}
+			return err
+		}
+		break
+	}
+	return err
+}
+
+func (s *SSH) newClientAndSession(host string) (*ssh.Client, *ssh.Session, error) {
+	sshClient, err := s.connect(host)
+	if err != nil {
 		return nil, nil, err
 	}
+	session, err := newSession(sshClient)
+	return sshClient, session, err
+}
 
-	return client, session, nil
+func (s *SSH) isLocalAction(host string) bool {
+	return !unshare.IsRootless() && s.localAddress != nil && iputils.IsLocalIP(host, s.localAddress)
 }
 
 func (s *SSH) sshAuthMethod(password, pkFile, pkData, pkPasswd string) (auth []ssh.AuthMethod) {

@@ -39,12 +39,13 @@ spec:
         - "--health-probe-bind-address=:8081"
         - "--metrics-bind-address=127.0.0.1:8080"
         - "--leader-elect"
-        envFrom:
-          - secretRef:
-              name: manager-secret
         env:
           - name: NAMESPACE_NAME
             valueFrom:
               fieldRef:
                 apiVersion: v1
                 fieldPath: metadata.namespace
+          - name: SEALOS_CLOUD_HOST
+            value: "cloud.sealos.io"
+          - name: SEALOS_CLOUD_PORT
+            value: "443"

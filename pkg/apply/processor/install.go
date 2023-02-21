@@ -26,11 +26,12 @@ import (
 	"github.com/labring/sealos/pkg/buildah"
 	"github.com/labring/sealos/pkg/clusterfile"
 	"github.com/labring/sealos/pkg/config"
-	"github.com/labring/sealos/pkg/constants"
 	"github.com/labring/sealos/pkg/filesystem"
 	"github.com/labring/sealos/pkg/guest"
+	runtime "github.com/labring/sealos/pkg/runtime"
 	v2 "github.com/labring/sealos/pkg/types/v1beta1"
 	"github.com/labring/sealos/pkg/utils/confirm"
+	"github.com/labring/sealos/pkg/utils/images"
 	"github.com/labring/sealos/pkg/utils/logger"
 	"github.com/labring/sealos/pkg/utils/rand"
 )
@@ -40,27 +41,11 @@ var ForceOverride bool
 type InstallProcessor struct {
 	ClusterFile      clusterfile.Interface
 	Buildah          buildah.Interface
+	Runtime          runtime.Interface
 	Guest            guest.Interface
 	NewMounts        []v2.MountImage
 	NewImages        []string
 	imagesToOverride []string
-}
-
-func (c *InstallProcessor) ConfirmOverrideApps(cluster *v2.Cluster) error {
-	if ForceOverride || len(c.imagesToOverride) == 0 {
-		return nil
-	}
-
-	prompt := fmt.Sprintf("are you sure to override these following apps? \n%s\t", strings.Join(c.imagesToOverride, "\n"))
-	cancel := "you have canceled to override these apps!"
-	pass, err := confirm.Confirm(prompt, cancel)
-	if err != nil {
-		return err
-	}
-	if !pass {
-		return errors.New(cancel)
-	}
-	return nil
 }
 
 func (c *InstallProcessor) Execute(cluster *v2.Cluster) error {
@@ -87,6 +72,7 @@ func (c *InstallProcessor) GetPipeLine() ([]func(cluster *v2.Cluster) error, err
 		c.RunConfig,
 		c.MountRootfs,
 		c.MirrorRegistry,
+		c.UpgradeIfNeed,
 		// i.GetPhasePluginFunc(plugin.PhasePreGuest),
 		c.RunGuest,
 		c.PostProcess,
@@ -96,6 +82,7 @@ func (c *InstallProcessor) GetPipeLine() ([]func(cluster *v2.Cluster) error, err
 }
 
 func (c *InstallProcessor) SyncStatusAndCheck(cluster *v2.Cluster) error {
+	logger.Info("Executing SyncStatusAndCheck Pipeline in InstallProcessor")
 	err := c.ClusterFile.Process()
 	if err != nil {
 		return err
@@ -113,8 +100,31 @@ func (c *InstallProcessor) SyncStatusAndCheck(cluster *v2.Cluster) error {
 	return nil
 }
 
+func (c *InstallProcessor) ConfirmOverrideApps(cluster *v2.Cluster) error {
+	logger.Info("Executing ConfirmOverrideApps Pipeline in InstallProcessor")
+
+	if ForceOverride || len(c.imagesToOverride) == 0 {
+		return nil
+	}
+
+	prompt := fmt.Sprintf("are you sure to override these following apps? \n%s\t", strings.Join(c.imagesToOverride, "\n"))
+	cancelledMsg := "you have canceled to override these apps"
+	pass, err := confirm.Confirm(prompt, cancelledMsg)
+	if err != nil {
+		return err
+	}
+	if !pass {
+		// return a cancelled error to stop apply process.
+		return ErrCancelled
+	}
+	ForceOverride = true
+	return nil
+}
+
 func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
-	if err := c.Buildah.Pull(buildah.DefaultPlatform(), buildah.PullIfMissing.String(), c.NewImages...); err != nil {
+	logger.Info("Executing PreProcess Pipeline in InstallProcessor")
+	if err := c.Buildah.Pull(c.NewImages, buildah.WithPlatformOption(buildah.DefaultPlatform()),
+		buildah.WithPullPolicyOption(buildah.PullIfMissing.String())); err != nil {
 		return err
 	}
 	imageTypes := sets.NewString()
@@ -123,8 +133,8 @@ func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
 		if err != nil {
 			return err
 		}
-		if oci.Config.Labels != nil {
-			imageTypes.Insert(oci.Config.Labels[constants.ImageTypeKey])
+		if oci.OCIv1.Config.Labels != nil {
+			imageTypes.Insert(oci.OCIv1.Config.Labels[v2.ImageTypeKey])
 		} else {
 			imageTypes.Insert(string(v2.AppImage))
 		}
@@ -133,31 +143,57 @@ func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
 		return errors.New("can't apply PatchImage only, need to init a Cluster to append it")
 	}
 	for _, img := range c.NewImages {
+		var ctrName string
 		mount := cluster.FindImage(img)
-		if mount == nil {
-			// create
-			mount = &v2.MountImage{
-				Name:      rand.Generator(8),
-				ImageName: img,
-			}
-			cluster.Spec.Image = merge(cluster.Spec.Image, img)
-		} else if !ForceOverride {
-			continue
-		} else {
-			logger.Debug("trying to override app %s", img)
-		}
 		if mount != nil {
-			manifest, err := c.Buildah.Create(mount.Name, img)
-			if err != nil {
-				return err
+			if !ForceOverride {
+				continue
 			}
-			mount.MountPoint = manifest.MountPoint
-			if err = OCIToImageMount(mount, c.Buildah); err != nil {
-				return err
-			}
-			cluster.SetMountImage(mount)
-			c.NewMounts = append(c.NewMounts, *mount)
+			ctrName = mount.Name
+			logger.Debug("trying to override app %s", img)
+		} else {
+			ctrName = rand.Generator(8)
 		}
+		cluster.Spec.Image = merge(cluster.Spec.Image, img)
+		bderInfo, err := c.Buildah.Create(ctrName, img)
+		if err != nil {
+			return err
+		}
+		mount = &v2.MountImage{
+			Name:       bderInfo.Container,
+			MountPoint: bderInfo.MountPoint,
+			ImageName:  img,
+		}
+
+		if err = OCIToImageMount(mount, c.Buildah); err != nil {
+			return err
+		}
+		cluster.SetMountImage(mount)
+		c.NewMounts = append(c.NewMounts, *mount)
+	}
+	runtime, err := runtime.NewDefaultRuntime(cluster, c.ClusterFile.GetKubeadmConfig())
+	if err != nil {
+		return fmt.Errorf("failed to init runtime, %v", err)
+	}
+	c.Runtime = runtime
+	return nil
+}
+
+func (c *InstallProcessor) UpgradeIfNeed(cluster *v2.Cluster) error {
+	logger.Info("Executing UpgradeIfNeed Pipeline in InstallProcessor")
+	for _, img := range c.NewMounts {
+		version := images.GetKubeVersionFromImage(img)
+		if version == "" {
+			continue
+		}
+		logger.Debug("try Upgrade Cluster to %s", version)
+		err := c.Runtime.UpgradeCluster(version)
+		if err != nil {
+			logger.Info("upgrade cluster failed")
+			return err
+		}
+		//upgrade success; replace the old cluster mount
+		cluster.ReplaceRootfsImage()
 	}
 	return nil
 }
@@ -198,6 +234,7 @@ func (c *InstallProcessor) RunConfig(cluster *v2.Cluster) error {
 }
 
 func (c *InstallProcessor) MountRootfs(cluster *v2.Cluster) error {
+	logger.Info("Executing pipeline MountRootfs in InstallProcessor.")
 	if len(c.NewMounts) == 0 {
 		return nil
 	}

@@ -18,28 +18,16 @@ var ErrNotMatch = errors.New("NotMatch")
 
 type MatchingLabelsModifier func(name any, labels client.MatchingLabels)
 
-type OrgCombinator interface {
-	GetOrg() string
-}
-
-type RepoCombinator interface {
-	GetRepo() string
-}
-
-type TagCombinator interface {
-	GetTag() string
-}
-
 func orgModifier(name any, labels client.MatchingLabels) {
-	labels[imagehubv1.SealosOrgLable] = name.(OrgCombinator).GetOrg()
+	labels[imagehubv1.SealosOrgLable] = name.(imagehubv1.OrgCombinator).GetOrg()
 }
 
 func repoModifier(name any, labels client.MatchingLabels) {
-	labels[imagehubv1.SealosRepoLabel] = name.(RepoCombinator).GetRepo()
+	labels[imagehubv1.SealosRepoLabel] = name.(imagehubv1.RepoCombinator).GetRepo()
 }
 
 func tagModifier(name any, labels client.MatchingLabels) {
-	labels[imagehubv1.SealosTagLabel] = name.(TagCombinator).GetTag()
+	labels[imagehubv1.SealosTagLabel] = name.(imagehubv1.TagCombinator).GetTag()
 }
 
 func listByLable[R client.ObjectList](ctx context.Context, r *DataHelper, result R, name any, modifiers ...MatchingLabelsModifier) (R, error) {
@@ -84,12 +72,12 @@ func (r *DataHelper) getRepoInfoByRepoName(ctx context.Context, name imagehubv1.
 //	return listByLable[*imagehubv1.ImageList](ctx, r, res, &name, orgModifier, repoModifier)
 //}
 
-func (r *DataHelper) getImageListByRepoName(ctx context.Context, name imagehubv1.RepoName) (*imagehubv1.ImageList, error) {
+func (r *DataHelper) GetImageListByRepoName(ctx context.Context, name imagehubv1.RepoName) (*imagehubv1.ImageList, error) {
 	res := &imagehubv1.ImageList{}
 	return listByLable[*imagehubv1.ImageList](ctx, r, res, &name, orgModifier, repoModifier)
 }
 
-func (r *DataHelper) getImageByImageName(ctx context.Context, name imagehubv1.ImageName) (imagehubv1.Image, error) {
+func (r *DataHelper) GetImageByImageName(ctx context.Context, name imagehubv1.ImageName) (imagehubv1.Image, error) {
 	res := &imagehubv1.ImageList{}
 	lst, err := listByLable[*imagehubv1.ImageList](ctx, r, res, &name, orgModifier, repoModifier, tagModifier)
 	if len(lst.Items) == 0 {
@@ -98,8 +86,8 @@ func (r *DataHelper) getImageByImageName(ctx context.Context, name imagehubv1.Im
 	return lst.Items[0], err
 }
 
-func (r *DataHelper) getImageInfoByImageName(ctx context.Context, name imagehubv1.ImageName) (imagehubv1.ImageInfo, error) {
-	image, err := r.getImageByImageName(ctx, name)
+func (r *DataHelper) GetImageInfoByImageName(ctx context.Context, name imagehubv1.ImageName) (imagehubv1.ImageInfo, error) {
+	image, err := r.GetImageByImageName(ctx, name)
 	if err != nil {
 		return imagehubv1.ImageInfo{}, err
 	}
@@ -111,7 +99,7 @@ func (r *DataHelper) genFulldataByImageName(ctx context.Context, n imagehubv1.Im
 
 	orgInfo, err := r.getOrgInfoByOrgName(ctx, n.ToOrgName())
 	if err == ErrNotMatch {
-		r.Logger.V(2).Info("getOrgInfoByOrgName", "err:", err.Error())
+		r.Logger.V(2).Info("failed to get origination info by", "org name", n.ToOrgName(), "err", err.Error())
 	} else if err != nil {
 		return imagehubv1.FullData{}, err
 	}
@@ -119,19 +107,31 @@ func (r *DataHelper) genFulldataByImageName(ctx context.Context, n imagehubv1.Im
 
 	repoInfo, err := r.getRepoInfoByRepoName(ctx, n.ToRepoName())
 	if err == ErrNotMatch {
-		r.Logger.V(2).Info("getRepoInfoByRepoName", "err:", err.Error())
+		r.Logger.V(2).Info("failed to get repository info by", "repo name", n.ToRepoName(), "err", err.Error())
 	} else if err != nil {
 		return imagehubv1.FullData{}, err
 	}
 	fd.RepoInfo = repoInfo
 
-	imgInfo, err := r.getImageInfoByImageName(ctx, n)
+	imgInfo, err := r.GetImageInfoByImageName(ctx, n)
 	if err == ErrNotMatch {
-		r.Logger.V(2).Info("getImageInfoByImageName", "err:", err.Error())
+		r.Logger.V(2).Info("failed to get image info by", "image name", n.ToMetaName(), "err", err.Error())
 	} else if err != nil {
 		return imagehubv1.FullData{}, err
 	}
 	fd.ImageInfo = imgInfo
 
 	return fd, nil
+}
+
+func removeDuplicateElement(input []string) []string {
+	result := make([]string, 0, len(input))
+	temp := map[string]struct{}{}
+	for _, item := range input {
+		if _, ok := temp[item]; !ok {
+			temp[item] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
 }

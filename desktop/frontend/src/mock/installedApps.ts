@@ -1,26 +1,25 @@
-import { TApp } from 'stores/app';
+import { TAppConfig } from 'stores/app';
 import { APPTYPE } from 'constants/app_type';
 
 // 已安装 app
-const installedApps: TApp[] = [
+const installedApps: TAppConfig[] = [
   {
     name: 'Sealos Document',
     icon: '/images/sealos.svg',
     type: APPTYPE.IFRAME,
     data: {
-      url: 'https://www.sealos.io/docs/Intro',
+      url: 'https://www.sealos.io/docs/cloud/Intro',
       desc: 'Sealos Documents'
     },
     gallery: [
       'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
       'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
     ],
-    size: 'maximize',
     menu: {
       nameColor: 'text-black',
-      helpDropDown: true,
+      helpDropDown: false,
       helpDocs: false
-    }
+    },
   },
   {
     name: 'App Store',
@@ -34,12 +33,11 @@ const installedApps: TApp[] = [
       'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
       'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
     ],
-    size: 'maximize',
     menu: {
       nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
+      helpDropDown: false,
+      helpDocs: 'https://www.sealos.io/docs/cloud/apps/appstore/'
+    },
   },
   // {
   //   name: 'Python Compiler',
@@ -82,12 +80,11 @@ const installedApps: TApp[] = [
       'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
       'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
     ],
-    size: 'maximize',
     menu: {
       nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
+      helpDropDown: false,
+      helpDocs: 'https://www.sealos.io/docs/cloud/apps/terminal/'
+    },
   },
   {
     name: 'Kubernetes Dashboard',
@@ -101,32 +98,33 @@ const installedApps: TApp[] = [
       'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
       'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
     ],
-    size: 'maximize',
     menu: {
       nameColor: 'text-black',
       helpDropDown: true,
       helpDocs: false
-    }
-  },
-  {
-    name: 'Kuboard',
-    icon: '/images/kuboard.svg',
-    type: APPTYPE.IFRAME,
-    data: {
-      url: '',
-      desc: 'sealos Cloud Kuboard'
     },
-    gallery: [
-      'https: //cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
-      'https: //www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
-    ],
-    size: 'maximize',
-    menu: {
-      nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
   },
+  // {
+  //   name: 'Kuboard',
+  //   icon: '/images/kuboard.svg',
+  //   type: APPTYPE.IFRAME,
+  //   data: {
+  //     url: '',
+  //     desc: 'sealos Cloud Kuboard'
+  //   },
+  //   gallery: [
+  //     'https: //cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
+  //     'https: //www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
+  //   ],
+  //   size: 'maximize',
+  //   menu: {
+  //     nameColor: 'text-black',
+  //     helpDropDown: true,
+  //     helpDocs: false
+  //   },
+  //   cacheSize: 'maximize',
+  //   mask: true
+  // },
   // {
   //   name: 'Prometheus',
   //   icon: '/images/prometheus.svg',
@@ -155,44 +153,46 @@ const installedApps: TApp[] = [
   //   ],
   //   size: 'maximize'
   // },
-  {
-    name: 'Redis',
-    icon: '/images/redis.svg',
-    type: APPTYPE.IFRAME,
-    data: {
-      url: '',
-      desc: 'redis operator'
-    },
-    gallery: [
-      'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
-      'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
-    ],
-    size: 'maximize',
-    menu: {
-      nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
-  },
-  {
-    name: 'Postgres',
-    icon: '/images/pgadmin.svg',
-    type: APPTYPE.IFRAME,
-    data: {
-      url: '',
-      desc: 'postgres operator'
-    },
-    gallery: [
-      'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
-      'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
-    ],
-    size: 'maximize',
-    menu: {
-      nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
-  },
+  // {
+  //   name: 'Redis',
+  //   icon: '/images/redis.svg',
+  //   type: APPTYPE.IFRAME,
+  //   data: {
+  //     url: '',
+  //     desc: 'redis operator'
+  //   },
+  //   gallery: [
+  //     'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
+  //     'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
+  //   ],
+  //   size: 'maximize',
+  //   menu: {
+  //     nameColor: 'text-black',
+  //     helpDropDown: true,
+  //     helpDocs: false
+  //   },
+  //   cacheSize: 'maximize',
+  //   mask: true
+  // },
+  // {
+  //   name: 'Postgres',
+  //   icon: '/images/pgadmin.svg',
+  //   type: APPTYPE.IFRAME,
+  //   data: {
+  //     url: '',
+  //     desc: 'postgres operator'
+  //   },
+  //   gallery: [
+  //     'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
+  //     'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
+  //   ],
+  //   size: 'maximize',
+  //   menu: {
+  //     nameColor: 'text-black',
+  //     helpDropDown: true,
+  //     helpDocs: false
+  //   }
+  // },
   // {
   //   name: 'SDK-DEMO',
   //   icon: '/images/mysql.svg',
@@ -219,31 +219,50 @@ const installedApps: TApp[] = [
       'https: //cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
       'https: //www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
     ],
-    size: 'maximize',
     menu: {
       nameColor: '#0073D7',
       helpDropDown: false,
-      helpDocs: true
-    }
+      helpDocs: 'https://www.sealos.io/docs/cloud/apps/scp/'
+    },
   },
+  // {
+  //   name: 'AFFiNE',
+  //   icon: '/images/affine.svg',
+  //   type: APPTYPE.IFRAME,
+  //   data: {
+  //     url: '',
+  //     desc: 'AFFiNE operator'
+  //   },
+  //   gallery: [
+  //     'https: //cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
+  //     'https: //www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
+  //   ],
+  //   size: 'maximize',
+  //   menu: {
+  //     nameColor: 'text-black',
+  //     helpDropDown: true,
+  //     helpDocs: false
+  //   },
+  //   cacheSize: 'maximize',
+  //   mask: true
+  // },
   {
-    name: 'AFFiNE',
-    icon: '/images/affine.svg',
-    type: APPTYPE.IFRAME,
+    name: 'Postgres',
+    icon: '/images/pgadmin.svg',
+    type: APPTYPE.APP,
+    gallery: [
+      'https://cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
+      'https://www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
+    ],
     data: {
       url: '',
-      desc: 'AFFiNE operator'
+      desc: 'postgres operator'
     },
-    gallery: [
-      'https: //cdn.programiz.com/cdn/farfuture/IwFGGPqycIxTfzLl7mPdcaqUaircnStXfipaHd4EBik/mtime:1605833048/sites/all/themes/programiz/assets/compiler.png',
-      'https: //www.programiz.com/blog/content/images/2020/07/programiz-online-compiler.png'
-    ],
-    size: 'maximize',
     menu: {
       nameColor: 'text-black',
-      helpDropDown: true,
-      helpDocs: false
-    }
+      helpDocs: 'https://www.sealos.io/docs/cloud/apps/postgres/',
+      helpDropDown: false
+    },
   }
 ];
 

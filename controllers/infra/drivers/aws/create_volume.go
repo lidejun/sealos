@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -48,8 +49,9 @@ func (d Driver) createAndAttachVolumes(infra *v1.Infra, host *v1.Hosts, disks []
 }
 
 func (d Driver) createAndAttachVolume(infra *v1.Infra, host *v1.Hosts, disk *v1.Disk) error {
-	if disk.Name == "" {
-		return nil
+	deviceName, err := generateDataDiskDeviceName(disk.Index)
+	if err != nil {
+		return err
 	}
 	client := d.Client
 	availabilityZone := infra.Spec.AvailabilityZone
@@ -61,8 +63,13 @@ func (d Driver) createAndAttachVolume(infra *v1.Infra, host *v1.Hosts, disk *v1.
 	for _, v := range host.Metadata {
 		//Volume_tag: [role:true,Data:true,name:namespace+name]
 		tags := rolesToTags(host.Roles)
+		id := v.ID
+
 		nameKey, fullName := common.InfraVolumesLabel, infra.GetInstancesAndVolumesTag()
 		dataLable, value := common.DataVolumeLabel, common.TRUELable
+		indexKey, indexValue := common.InfraVolumeIndex, strconv.Itoa(disk.Index)
+		infraIDKey, infraIDValue := common.VolumeInfraID, id
+
 		tags = append(tags, []types.Tag{
 			{
 				Key:   &nameKey,
@@ -72,12 +79,20 @@ func (d Driver) createAndAttachVolume(infra *v1.Infra, host *v1.Hosts, disk *v1.
 				Key:   &dataLable,
 				Value: &value,
 			},
+			{
+				Key:   &indexKey,
+				Value: &indexValue,
+			},
+			{
+				Key:   &infraIDKey,
+				Value: &infraIDValue,
+			},
 		}...,
 		)
 		size := int32(disk.Capacity)
 		input := &ec2.CreateVolumeInput{
 			Size:             &size,
-			VolumeType:       types.VolumeType(disk.Type),
+			VolumeType:       types.VolumeType(disk.VolumeType),
 			AvailabilityZone: &availabilityZone,
 			TagSpecifications: []types.TagSpecification{
 				{
@@ -90,9 +105,8 @@ func (d Driver) createAndAttachVolume(infra *v1.Infra, host *v1.Hosts, disk *v1.
 		if err != nil {
 			return fmt.Errorf("create volume failed: %v", err)
 		}
-		id := v.ID
 		inputAttach := &ec2.AttachVolumeInput{
-			Device:     &disk.Name,
+			Device:     &deviceName,
 			VolumeId:   result.VolumeId,
 			InstanceId: &id,
 		}

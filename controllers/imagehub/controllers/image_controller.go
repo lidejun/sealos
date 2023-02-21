@@ -71,12 +71,12 @@ func (r *ImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return r.doReconcile(ctx, img)
+		return r.reconcile(ctx, img)
 	}
 	return ctrl.Result{}, errors.New("reconcile error from Finalizer")
 }
 
-func (r *ImageReconciler) doReconcile(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+func (r *ImageReconciler) reconcile(ctx context.Context, obj client.Object) (ctrl.Result, error) {
 	r.Logger.V(1).Info("update reconcile controller image", "request", client.ObjectKeyFromObject(obj))
 	img, ok := obj.(*imagehubv1.Image)
 	if !ok {
@@ -87,7 +87,10 @@ func (r *ImageReconciler) doReconcile(ctx context.Context, obj client.Object) (c
 	repo.Name = img.Spec.Name.ToRepoName().ToMetaName()
 	err := r.Get(ctx, client.ObjectKeyFromObject(repo), repo)
 	if err != nil && apierrors.IsNotFound(err) {
-		repo.Spec.Name = img.Spec.Name.ToRepoName()
+		repo.Spec = imagehubv1.RepositorySpec{
+			Name:      img.Spec.Name.ToRepoName(),
+			IsPrivate: false,
+		}
 		if err := r.Create(ctx, repo); err != nil {
 			r.Logger.Error(err, "error in create")
 			return ctrl.Result{Requeue: true}, err

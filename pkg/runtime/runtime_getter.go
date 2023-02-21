@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strings"
 
+	strings2 "github.com/labring/sealos/pkg/utils/strings"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/labring/sealos/pkg/bootstrap"
@@ -44,13 +46,13 @@ func (k *KubeadmRuntime) getKubeVersion() string {
 	return k.ClusterConfiguration.KubernetesVersion
 }
 
+// old implementation doesn't consider multiple rootfs images; here get the first rootfs image
 func (k *KubeadmRuntime) getKubeVersionFromImage() string {
-	labels := k.getImageLabels()
-	image := labels[constants.ImageKubeVersionKey]
-	if image == "" {
+	img := k.Cluster.GetRootfsImage("")
+	if img.Labels == nil {
 		return ""
 	}
-	return image
+	return img.Labels[v1beta1.ImageKubeVersionKey]
 }
 
 func (k *KubeadmRuntime) getMaster0IP() string {
@@ -90,12 +92,13 @@ func (k *KubeadmRuntime) getRegistryIPAndPort() string {
 }
 
 func (k *KubeadmRuntime) getMaster0IPAPIServer() string {
-	return k.Cluster.GetMaster0IPAPIServer()
+	master0 := k.getMaster0IP()
+	return fmt.Sprintf("https://%s:%d", master0, k.getAPIServerPort())
 }
 
 func (k *KubeadmRuntime) getLvscareImage() (string, error) {
 	labels := k.getImageLabels()
-	image := labels[constants.ImageKubeLvscareImageKey]
+	image := labels[v1beta1.ImageKubeLvscareImageKey]
 	if image == "" {
 		image = constants.DefaultLvsCareImage
 	}
@@ -104,10 +107,14 @@ func (k *KubeadmRuntime) getLvscareImage() (string, error) {
 
 func (k *KubeadmRuntime) getVIPFromImage() string {
 	labels := k.getImageLabels()
-	vip := labels[constants.ImageVIPKey]
+	vip := labels[v1beta1.ImageVIPKey]
 	if vip == "" {
 		vip = DefaultVIP
+	} else {
+		envs := k.getENVInterface().WrapperEnv(k.getMaster0IP())
+		vip = strings2.RenderTextFromEnv(vip, envs)
 	}
+	logger.Debug("get vip is %s", vip)
 	return vip
 }
 
@@ -184,7 +191,15 @@ func (k *KubeadmRuntime) sshCmdAsync(host string, cmd ...string) error {
 	return k.getSSHInterface().CmdAsync(host, cmd...)
 }
 
+func (k *KubeadmRuntime) sshCmdToString(host string, cmd string) (string, error) {
+	return k.getSSHInterface().CmdToString(host, cmd, "")
+}
+
 func (k *KubeadmRuntime) sshCopy(host, srcFilePath, dstFilePath string) error {
+	if srcFilePath == dstFilePath {
+		logger.Info("src and dst is same path , skip copy %s", srcFilePath)
+		return nil
+	}
 	return k.getSSHInterface().Copy(host, srcFilePath, dstFilePath)
 }
 

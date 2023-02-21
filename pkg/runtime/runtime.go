@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/labring/sealos/pkg/utils/logger"
+	"github.com/labring/sealos/pkg/utils/versionutil"
 
 	v2 "github.com/labring/sealos/pkg/types/v1beta1"
 )
@@ -44,7 +45,7 @@ type Config struct {
 func (k *KubeadmRuntime) Init() error {
 	pipeline := []func() error{
 		k.ConfigInitKubeadmToMaster0,
-		k.UpdateCert,
+		k.UpdateCertByInit,
 		k.CopyStaticFilesToMasters,
 		k.InitMaster0,
 	}
@@ -60,6 +61,8 @@ type Interface interface {
 	JoinMasters(newMastersIPList []string) error
 	DeleteMasters(mastersIPList []string) error
 	SyncNodeIPVS(mastersIPList, nodeIPList []string) error
+	UpdateCert(certs []string) error
+	UpgradeCluster(version string) error
 }
 
 func (k *KubeadmRuntime) Reset() error {
@@ -97,7 +100,7 @@ func (k *KubeadmRuntime) DeleteMasters(mastersIPList []string) error {
 	return k.deleteMasters(mastersIPList)
 }
 
-func newKubeadmRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {
+func newKubeadmRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig, setKubeadm bool) (Interface, error) {
 	k := &KubeadmRuntime{
 		Cluster: cluster,
 		Config: &Config{
@@ -106,19 +109,27 @@ func newKubeadmRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, 
 		},
 		KubeadmConfig: &KubeadmConfig{},
 	}
+	if setKubeadm {
+		k.KubeadmConfig = kubeadm
+	}
 	if err := k.Validate(); err != nil {
 		return nil, err
 	}
 	if logger.IsDebugMode() {
 		k.vlog = 6
 	}
-	k.setCertSANS()
+	k.setCertSANS([]string{})
 	return k, nil
 }
 
 // NewDefaultRuntime arg "clusterName" is the Cluster name
 func NewDefaultRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {
-	return newKubeadmRuntime(cluster, kubeadm)
+	return newKubeadmRuntime(cluster, kubeadm, false)
+}
+
+// NewDefaultRuntimeByKubeadm arg "clusterName" is the Cluster name
+func NewDefaultRuntimeByKubeadm(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {
+	return newKubeadmRuntime(cluster, kubeadm, true)
 }
 
 func (k *KubeadmRuntime) Validate() error {
@@ -132,4 +143,22 @@ func (k *KubeadmRuntime) Validate() error {
 		return fmt.Errorf("cluster image kubernetes version cannot be empty")
 	}
 	return nil
+}
+
+func (k *KubeadmRuntime) UpgradeCluster(version string) error {
+	curversion := k.getKubeVersionFromImage()
+	if curversion == version {
+		logger.Info("The cluster version has not changed")
+		return nil
+	} else if versionutil.Compare(version, curversion) {
+		if err := versionutil.UpgradeVersionLimit(curversion, version); err != nil {
+			return err
+		}
+		logger.Info("cluster vesion: %s will be upgraded into %s.", curversion, version)
+		return k.upgradeCluster(version)
+	} else if versionutil.Compare(curversion, version) {
+		logger.Info("new cluster version %s behind the current version %s", version, curversion)
+		return nil
+	}
+	return fmt.Errorf("verion format error")
 }

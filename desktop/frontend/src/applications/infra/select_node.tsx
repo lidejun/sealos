@@ -11,17 +11,12 @@ type SelectNodeComponent = {
   nodeCount: string;
   nodeDisk: number;
   diskType: string;
+  diskLimit: number;
   dispatchInfraForm: (action: any) => void;
 };
 
-const SelectNodeComponent = ({
-  type,
-  nodeType,
-  nodeCount,
-  nodeDisk,
-  diskType,
-  dispatchInfraForm
-}: SelectNodeComponent) => {
+const SelectNodeComponent = (props: SelectNodeComponent) => {
+  const { type, nodeType, nodeCount, nodeDisk, diskType, diskLimit, dispatchInfraForm } = props;
   const { currentApp, openedApps } = useAppStore();
   const curApp = openedApps.find((item) => item.name === currentApp?.name);
 
@@ -92,7 +87,7 @@ const SelectNodeComponent = ({
         <span className={styles.cloudLabel}>机器</span>
         <Dropdown
           className={clsx(curApp?.size === 'maxmin' ? styles.selectTypeMin : styles.selectType)}
-          placeholder="请选择类型"
+          placeholder="类型"
           selectedOptions={onDefaultNodeType(nodeType)}
           onOptionSelect={(e, data) => onSelectNodeType(data.optionValue)}
         >
@@ -113,7 +108,7 @@ const SelectNodeComponent = ({
         <span className={styles.cloudLabel}>硬盘</span>
         <Slider
           className={clsx(curApp?.size === 'maxmin' ? styles.sliderCountMin : styles.sliderCount)}
-          min={0}
+          min={diskLimit}
           max={128}
           value={nodeDisk}
           onChange={(e, data) => setNodeDiskValue(data.value)}
@@ -122,13 +117,14 @@ const SelectNodeComponent = ({
           className={clsx(curApp?.size === 'maxmin' ? styles.diskCountMin : styles.diskCount)}
           value={nodeDisk.toString()}
           contentAfter={'G'}
+          min={diskLimit}
           onChange={(e, data) => onChangeDiskValue(data)}
         ></Input>
         <Dropdown
           className={clsx(
             curApp?.size === 'maxmin' ? styles.selectDiskTypeMin : styles.selectDiskType
           )}
-          placeholder="请选择类型"
+          placeholder="类型"
           selectedOptions={onDefaultDiskType(diskType)}
           onOptionSelect={(e, data) => onSelectDiskType(data.optionValue)}
         >

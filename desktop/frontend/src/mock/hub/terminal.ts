@@ -28,7 +28,7 @@ spec:
   user: {{ .kube_user.name }}
   token: {{ .kube_user.token }}
   apiServer: https://kubernetes.default.svc.cluster.local:443
-  ttyImage: ghcr.io/cuisongliu/go-docker-dev:1.18.4
+  ttyImage: ghcr.io/cuisongliu/go-docker-dev:1.19.4
   replicas: 1
   keepalived: 4h
 `;
@@ -67,44 +67,24 @@ const TerminalApplication: RunApplication = {
 
     try {
       const terminalUserDesc = await GetCRD(kc, terminal_meta_user, terminal_name);
-      if (terminalUserDesc !== null && terminalUserDesc.body !== null) {
-        // then get real namespace crd
-        try {
-          const terminalDesc = await GetCRD(kc, terminal_meta, terminal_name);
-          if (
-            terminalDesc !== null &&
-            terminalDesc.body !== null &&
-            terminalDesc.body.status !== null
-          ) {
-            const terminalStatus = terminalDesc.body.status as terminalStatus;
-            if (terminalStatus.availableReplicas > 0) {
-              // temporarily add domain scheme
-              let domain = terminalStatus.domain || '';
-              if (!domain.startsWith('https://')) {
-                domain = 'https://' + domain;
-              }
-
-              return Promise.resolve({
-                status: 200,
-                application_type: ApplicationType.IFrame,
-                iframe_page: domain
-              } as StartResp);
-            }
+      if (
+        terminalUserDesc !== null &&
+        terminalUserDesc.body !== null &&
+        terminalUserDesc.body.status !== null
+      ) {
+        const terminalStatus = terminalUserDesc.body.status as terminalStatus;
+        if (terminalStatus.availableReplicas > 0) {
+          // temporarily add domain scheme
+          let domain = terminalStatus.domain || '';
+          if (!domain.startsWith('https://')) {
+            domain = 'https://' + domain;
           }
-        } catch (err) {
-          // console.log(err);
 
-          if (err instanceof k8s.HttpError) {
-            return Promise.reject('http ' + err.body.code + ', ' + err.body.message);
-          } else {
-            if (typeof err === 'string') {
-              return Promise.reject(err);
-            }
-            if (err instanceof Error) {
-              return Promise.reject(err.message);
-            }
-            return Promise.reject(err);
-          }
+          return Promise.resolve({
+            status: 200,
+            application_type: ApplicationType.IFrame,
+            iframe_page: domain
+          } as StartResp);
         }
       }
     } catch (err) {

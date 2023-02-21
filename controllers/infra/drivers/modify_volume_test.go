@@ -24,12 +24,12 @@ func TestDriver_modifyVolume(t *testing.T) {
 				curDisk: &v1.Disk{
 					Type:     string(types.VolumeTypeGp3),
 					Capacity: 35,
-					Name:     "/dev/sda2",
+					//Name:     "/dev/sda2",
 				},
 				desDisk: &v1.Disk{
 					Type:     string(types.VolumeTypeGp3),
 					Capacity: 40,
-					Name:     "/dev/sda2",
+					//Name:     "/dev/sda2",
 				},
 			},
 			false,
@@ -37,7 +37,7 @@ func TestDriver_modifyVolume(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d, err := NewDriver()
+			d, err := NewDriver("aws")
 			if err != nil {
 				t.Errorf("create driver failed")
 			}

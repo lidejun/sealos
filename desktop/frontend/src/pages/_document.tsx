@@ -1,7 +1,6 @@
 import { createDOMRenderer, renderToStyleElements } from '@fluentui/react-components';
 import Document, { Head, Html, Main, NextScript } from 'next/document';
 import React from 'react';
-
 class MyDocument extends Document {
   static async getInitialProps(ctx: any) {
     // 👇 creates a renderer that will be used for SSR
@@ -57,10 +56,7 @@ class MyDocument extends Document {
           <link rel="manifest" href="/manifest.json" />
           <link rel="mask-icon" href="/icons/safari-pinned-tab.svg" color="#5bbad5" />
           <link rel="shortcut icon" href="/favicon.ico" />
-          <link
-            rel="stylesheet"
-            href="https://fonts.googleapis.com/css?family=Roboto:300,400,500&display=optional"
-          />
+          <script src="/iconfont/iconfont.js" async></script>
         </Head>
         <body>
           <Main />

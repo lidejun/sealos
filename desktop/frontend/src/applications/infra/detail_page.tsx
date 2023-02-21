@@ -71,8 +71,12 @@ function DetailPage() {
   };
 
   const deleteInfra = async () => {
-    const result = await request.post('/api/infra/awsDeleteCluster', { infraName, kubeconfig });
-    const res = await request.post('/api/infra/awsDelete', { infraName, kubeconfig });
+    try {
+      const result = await request.post('/api/infra/awsDeleteCluster', { infraName, kubeconfig });
+      const res = await request.post('/api/infra/awsDelete', { infraName, kubeconfig });
+    } catch (error) {
+      // console.log(error);
+    }
     setDeDialog(false);
     toPage(PageType.FrontPage, '');
   };
@@ -80,7 +84,10 @@ function DetailPage() {
   return (
     <div className={clsx(styles.detailPage, 'relative')}>
       <div className={clsx(curApp?.size === 'maxmin' ? styles.leftInfoMin : styles.leftInfo)}>
-        <div className={clsx(styles.infraTitle, 'flex items-center')}>
+        <div
+          className={clsx(styles.infraTitle, 'flex items-center')}
+          data-overlength={!!(nameLen > 10)}
+        >
           <span className="w-40 truncate">{scpInfo?.data?.metadata?.name}</span>
           <StatusComponent infraStatus={infraStatus} clusterStatus={clusterStatus} desc={false} />
           {nameLen > 10 && (
@@ -109,7 +116,7 @@ function DetailPage() {
           </span>
           <span className="mt-4">
             <SvgIcon src="/images/infraicon/scp_image.svg" />
-            kuberentes:v1.24.0
+            {clusterInfo?.data?.spec?.image[0]}
           </span>
           <span className="mt-4">
             <SvgIcon src="/images/infraicon/scp_user.svg" />
@@ -120,7 +127,7 @@ function DetailPage() {
             ref={sshRef}
             onClick={() => {
               positioningRef.current?.setTarget(sshRef.current as any);
-              copyContext(scpInfo?.data.spec.ssh?.pkData);
+              copyContext(scpInfo?.data?.spec?.ssh?.pkData);
             }}
           >
             <SvgIcon src="/images/infraicon/scp_ssh.svg" />

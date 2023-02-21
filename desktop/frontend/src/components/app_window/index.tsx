@@ -5,8 +5,7 @@ import styles from './index.module.scss';
 import tabStyles from './tab.module.scss';
 import clsx from 'clsx';
 import useAppStore, { TApp } from 'stores/app';
-import Draggable from 'react-draggable';
-import { Dropdown } from '@fluentui/react-components/unstable';
+import Draggable, { DraggableEventHandler } from 'react-draggable';
 import HelpDropDown from './help_dropdown';
 import HelpDocs from './help_docs';
 
@@ -14,21 +13,42 @@ export default function AppWindow(props: {
   style?: React.CSSProperties;
   app: TApp;
   children: any;
+  desktopHeight: number;
+  desktopWidth: number;
 }) {
-  const wnapp = props.app;
-
-  const { closeApp, updateAppInfo, switchApp } = useAppStore((state) => state);
-  const dragDom = useRef(null);
-  const [snap, setSnap] = useState(false);
+  const { app: wnapp, desktopHeight, desktopWidth } = props;
+  const { closeApp, updateOpenedAppInfo, switchApp, currentApp, openedApps } = useAppStore(
+    (state) => state
+  );
+  const dragDom = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
-  const openSnap = () => {
-    setSnap(true);
-  };
+  const handleDragBoundary: DraggableEventHandler = (e, position) => {
+    const { x, y } = position;
+    const appHeaderHeight = dragDom.current?.querySelector('.windowHeader')?.clientHeight || 30;
+    const appHeaderWidth = dragDom.current?.querySelector('.windowHeader')?.clientWidth || 3000;
 
-  const closeSnap = () => {
-    setSnap(false);
+    if (currentApp?.size === 'maxmin') {
+      let upperBoundary = -desktopHeight * 0.1;
+      let lowerBoundary = desktopHeight * 0.9 - appHeaderHeight;
+      setPosition({
+        x:
+          x < 0
+            ? x < -1.1 * appHeaderWidth // (0.8width + width/0.6*0.2)
+              ? 0
+              : x
+            : x > 1.1 * appHeaderWidth
+            ? 0
+            : x,
+        y: y < upperBoundary ? upperBoundary : y > lowerBoundary ? 0 : y
+      });
+    } else {
+      setPosition({
+        x: x < 0 ? (x < -0.8 * appHeaderWidth ? 0 : x) : x > 0.8 * appHeaderWidth ? 0 : x,
+        y: y < 0 ? 0 : y > desktopHeight - appHeaderHeight ? 0 : y
+      });
+    }
   };
 
   return (
@@ -39,7 +59,8 @@ export default function AppWindow(props: {
       onDrag={(e, position) => {
         setPosition(position);
       }}
-      onStop={() => {
+      onStop={(e, position) => {
+        handleDragBoundary(e, position);
         setDragging(false);
       }}
       handle=".windowHeader"
@@ -56,14 +77,26 @@ export default function AppWindow(props: {
           zIndex: wnapp.zIndex
         }}
       >
-        <div className={'windowHeader'}>
+        <div
+          className={'windowHeader'}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            updateOpenedAppInfo({
+              ...wnapp,
+              size: wnapp.size === 'maxmin' ? 'maximize' : 'maxmin',
+              cacheSize: wnapp.size === 'maxmin' ? 'maximize' : 'maxmin'
+            });
+            setPosition({ x: 0, y: 0 });
+          }}
+        >
           <div
             className={styles.toolbar}
-            onClick={() => {
-              switchApp(wnapp);
+            onClick={(e) => {
+              switchApp({ ...wnapp, mask: false }, 'clickMask');
             }}
             style={{
-              background: wnapp.style?.bg || '#fff'
+              background: '#fff'
             }}
           >
             <div className={clsx(styles.topInfo, 'flex flex-grow items-center ml-4')}>
@@ -72,7 +105,11 @@ export default function AppWindow(props: {
                 {wnapp.name}
               </div>
               {wnapp.menu?.helpDropDown && <HelpDropDown />}
-              {wnapp.menu?.helpDocs && <HelpDocs />}
+              {wnapp.menu?.helpDocs && (
+                <HelpDocs
+                  url={typeof wnapp.menu?.helpDocs === 'string' ? wnapp.menu?.helpDocs : ''}
+                />
+              )}
             </div>
 
             <div className={clsx(styles.actbtns, 'flex items-center')}>
@@ -81,7 +118,7 @@ export default function AppWindow(props: {
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  updateAppInfo({
+                  updateOpenedAppInfo({
                     ...wnapp,
                     size: 'minimize'
                   });
@@ -92,18 +129,16 @@ export default function AppWindow(props: {
 
               <div
                 className={clsx(styles.snapbox, 'h-full')}
-                data-hv={snap}
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  updateAppInfo({
+                  updateOpenedAppInfo({
                     ...wnapp,
-                    size: wnapp.size === 'maxmin' ? 'maximize' : 'maxmin'
+                    size: wnapp.size === 'maxmin' ? 'maximize' : 'maxmin',
+                    cacheSize: wnapp.size === 'maxmin' ? 'maximize' : 'maxmin'
                   });
                   setPosition({ x: 0, y: 0 });
                 }}
-                onMouseOver={openSnap}
-                onMouseLeave={closeSnap}
               >
                 <div className={styles.uicon}>
                   <Icon
@@ -120,7 +155,7 @@ export default function AppWindow(props: {
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  updateAppInfo({
+                  updateOpenedAppInfo({
                     ...wnapp,
                     isShow: false
                   });
@@ -133,8 +168,18 @@ export default function AppWindow(props: {
           </div>
         </div>
         <div className={clsx(tabStyles.windowScreen, 'flex flex-col')}>
-          <div className="restWindow flex-grow flex flex-col">
-            <div className="flex-grow overflow-hidden">{props.children}</div>
+          <div className="restWindow flex-grow flex flex-col relative">
+            <div className="flex-grow overflow-hidden">
+              {wnapp.mask && (
+                <div
+                  className={styles.appMask}
+                  onClick={() => {
+                    switchApp({ ...wnapp, mask: false }, 'clickMask');
+                  }}
+                ></div>
+              )}
+              {props.children}
+            </div>
           </div>
         </div>
       </div>

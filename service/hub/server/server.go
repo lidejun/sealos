@@ -181,6 +181,11 @@ func (as *AuthServer) Authenticate(ar *AuthRequest) (bool, api.Labels, kubernete
 }
 
 func (as *AuthServer) authorizeScope(client kubernetes.Client, ai *api.AuthRequestInfo) ([]string, error) {
+	// if client is nil, authorize anonymously by using server.kubeconfig
+	if client == nil {
+		glog.V(2).Infof("Authorize anonymously")
+		client = k8sClient
+	}
 	result, err := as.authorizers.Authorize(client, ai)
 	glog.V(2).Infof("Authz  %s -> %s, %s", *ai, result, err)
 	if err != nil {
@@ -242,7 +247,7 @@ func (as *AuthServer) CreateToken(ar *AuthRequest, ares []AuthzResult) (string, 
 		NotBefore:  now - 10,
 		IssuedAt:   now,
 		Expiration: now + tc.Expiration,
-		JWTID:      fmt.Sprintf("%d", rand.Int63()),
+		JWTID:      fmt.Sprintf("%d", rand.New(rand.NewSource(time.Now().UnixNano())).Int63()),
 		Access:     []*token.ResourceActions{},
 	}
 	for _, a := range ares {

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
+
+	"github.com/labring/sealos/controllers/infra/common"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
@@ -25,6 +28,35 @@ func setHostsIndex(infra *v1.Infra) {
 			infra.Spec.Hosts[i].Index = i
 		}
 	}
+}
+
+func setVolumeIndex(disks []v1.Disk, index int) {
+	for i := range disks {
+		if disks[i].Type == common.RootVolumeLabel {
+			disks[i].Index = 0
+		} else if disks[i].Index == 0 {
+			disks[i].Index = index
+			index++
+		}
+	}
+}
+
+func getMaxIndex(des, cur []v1.Disk) int {
+	if des == nil && cur == nil {
+		return 0
+	}
+	max := 0
+	for _, disk := range des {
+		if max < disk.Index {
+			max = disk.Index
+		}
+	}
+	for _, disk := range cur {
+		if max < disk.Index {
+			max = disk.Index
+		}
+	}
+	return max
 }
 
 func (a *Applier) ReconcileInstance(infra *v1.Infra, driver Driver) error {
@@ -63,49 +95,12 @@ func (a *Applier) ReconcileInstance(infra *v1.Infra, driver Driver) error {
 	return nil
 }
 
-/*
-func (a *Applier) ReconcileInstance(infra *v1.Infra, driver Driver) error {
-	if len(infra.Spec.Hosts) == 0 {
-		logger.Debug("desired host len is 0")
-		return nil
-	}
-	setHostsIndex(infra)
-	if !infra.DeletionTimestamp.IsZero() {
-		logger.Debug("remove all hosts")
-		for _, hosts := range infra.Spec.Hosts {
-			if err := driver.DeleteInstances(&hosts); err != nil {
-				return err
-			}
-		}
-	}
-	// get infra all hosts
-	hosts, err := driver.GetInstances(infra)
-	if err != nil {
-		return fmt.Errorf("get all instances failed: %v", err)
-	}
-	// sort current hosts
-	sortHostsByIndex(v1.IndexHosts(hosts))
-	// merge current hosts list using index
-	// sort  desired hosts
-	sortHostsByIndex(v1.IndexHosts(infra.Spec.Hosts))
-	if err = a.ReconcileHosts(hosts, infra, driver); err != nil {
-		return err
-	}
-	currHosts, err := driver.GetInstances(infra)
-	if err != nil {
-		return err
-	}
-	infra.Spec.Hosts = currHosts
-	return nil
+func sortDisksByIndex(disks v1.IndexDisks) {
+	sort.Sort(disks)
 }
-*/
 
 func sortHostsByIndex(hosts v1.IndexHosts) {
 	sort.Sort(hosts)
-}
-
-func sortDisksByName(disks v1.NameDisks) {
-	sort.Sort(disks)
 }
 
 func (a *Applier) ReconcileHosts(current []v1.Hosts, infra *v1.Infra, driver Driver) error {
@@ -119,7 +114,6 @@ func (a *Applier) ReconcileHosts(current []v1.Hosts, infra *v1.Infra, driver Dri
 	for i := range desired {
 		des := desired[i]
 		cur := getHostsByIndex(des.Index, current)
-
 		eg.Go(func() error {
 			// current 0 instance -> create
 			if cur == nil {
@@ -171,6 +165,11 @@ func (a *Applier) ReconcileHosts(current []v1.Hosts, infra *v1.Infra, driver Dri
 				}
 			}
 
+			//reconcile disks
+			if err := a.ReconcileDisks(infra, cur, des.Disks, driver); err != nil {
+				return fmt.Errorf("reconcile disks failed: %v", err)
+			}
+
 			//if cur.Flavor != d.Flavor {
 			//	logger.Info("current instance flavor not equal desired instance flavor, update instance %#v", d)
 			//	if err := driver.ModifyInstances(cur, &d); err != nil {
@@ -216,27 +215,38 @@ func (a *Applier) ReconcileHosts(current []v1.Hosts, infra *v1.Infra, driver Dri
 func (a *Applier) ReconcileDisks(infra *v1.Infra, current *v1.Hosts, des []v1.Disk, driver Driver) error {
 	cur := current.Disks
 	// sort disk for cur and des
-	sortDisksByName(v1.NameDisks(des))
-	sortDisksByName(v1.NameDisks(cur))
+	lastIndex := getMaxIndex(des, cur)
+	setVolumeIndex(des, lastIndex+1)
+	sortDisksByIndex(des)
+	sortDisksByIndex(cur)
 	Icur, Ides := 0, 0
 	// compare
 	for Icur < len(cur) && Ides < len(des) {
 		curDisk, desDisk := cur[Icur], des[Ides]
 		// same mount path, two pointers move to right
-		if curDisk.Name == desDisk.Name {
-			if err := driver.ModifyVolume(&curDisk, &desDisk); err != nil {
-				return err
+		if curDisk.Index == desDisk.Index {
+			if curDisk.Capacity != desDisk.Capacity || curDisk.VolumeType != desDisk.VolumeType {
+				logger.Info("start to modify disk... cur cap is %v, des cap is %v", curDisk.Capacity, desDisk.Capacity)
+				if err := driver.ModifyVolume(&curDisk, &desDisk); err != nil {
+					return err
+				}
+				//wait for volume updated
+				//Warning: this may cause unpredictable risk
+				logger.Info("wait for volume updated...")
+				time.Sleep(5000 * time.Millisecond)
 			}
 			Icur++
 			Ides++
-		} else if curDisk.Name < desDisk.Name {
-			// cur have but des don't have. delete cur volume and cur pointer move to right
-			//if err := driver.DeleteVolume(curDisk.ID); err != nil {
-			//	return err
-			//}
+		} else if curDisk.Index < desDisk.Index {
+			// cur exists but des doesn't exist. delete cur volume and move cur pointer to right
+			logger.Info("start to delete disk... cur cap is %v", curDisk.Capacity)
+			if err := driver.DeleteVolume([]string{curDisk.ID}); err != nil {
+				return err
+			}
 			Icur++
 		} else {
-			// des have but cur don't have. create des volume and des pointer move to right
+			// des exists but cur doesn't exist, create des volume and move des pointer to right
+			logger.Info("start to create disk... des cap is %v", desDisk.Capacity)
 			if err := driver.CreateVolumes(infra, current, []v1.Disk{desDisk}); err != nil {
 				return err
 			}
@@ -244,19 +254,21 @@ func (a *Applier) ReconcileDisks(infra *v1.Infra, current *v1.Hosts, des []v1.Di
 		}
 	}
 	// volume owned by cur is not detected, should be deleted.
-	//if Icur != len(cur) {
-	//	for ; Icur < len(cur); Icur++ {
-	//		curDisk := cur[Icur]
-	//		if err := driver.DeleteVolume(curDisk.ID); err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
+	if Icur != len(cur) {
+		for ; Icur < len(cur); Icur++ {
+			curDisk := cur[Icur]
+			if err := driver.DeleteVolume([]string{curDisk.ID}); err != nil {
+				return err
+			}
+		}
+	}
 	// volume owned by des is not detected, should be created.
 	if Ides != len(des) {
 		for ; Ides < len(des); Ides++ {
 			desDisk := des[Ides]
+			logger.Info("create index: %v", Ides)
 			if err := driver.CreateVolumes(infra, current, []v1.Disk{desDisk}); err != nil {
+				logger.Error("create volume failed: %v", err)
 				return err
 			}
 		}

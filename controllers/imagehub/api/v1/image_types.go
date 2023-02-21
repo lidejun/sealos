@@ -26,10 +26,18 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type TagData struct {
-	Name string `json:"name"`
-	// todo inspect image and get time
-	CTime metav1.Time `json:"creatTime"`
+	Name     string      `json:"name"`
+	MetaName string      `json:"metaName"`
+	Size     int64       `json:"size"`
+	CTime    metav1.Time `json:"creatTime"` // todo inspect image and get time
 }
+
+type ImageType string
+
+const (
+	CloudImageType   ImageType = "cloud-image"
+	ClusterImageType ImageType = "cluster-image"
+)
 
 type ImageName string
 
@@ -88,18 +96,28 @@ func (n ImageName) GetMateName() string {
 	return strings.ReplaceAll(strings.ReplaceAll(string(n), "/", "."), ":", ".")
 }
 
+type Action struct {
+	// TODO: support more action types ,now just support yaml.
+	Name       string `json:"name,omitempty"`
+	ActionType string `json:"actionType,omitempty"`
+	Template   string `json:"actions,omitempty"`
+	CMD        string `json:"cmd,omitempty"`
+}
+
 // ImageDetailInfo TODO: add limits for ImageDetailInfo
 type ImageDetailInfo struct {
-	URL         string   `json:"url,omitempty"`
 	Keywords    []string `json:"keywords,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Icon        string   `json:"icon,omitempty"`
-	AuthorIcon  string   `json:"authorIcon,omitempty"`
 	Docs        string   `json:"docs,omitempty"`
-	ID          string   `json:"ID,omitempty"`
-	Arch        string   `json:"arch,omitempty"`
-	Rating      int      `json:"rating,omitempty"`
-	Size        int64    `json:"size,omitempty"`
+	// URL sealos cloud ui endpoint
+	URL string `json:"url,omitempty"`
+	// ID Arch Size should use buildah inspect to get infor.
+	ID   string `json:"ID,omitempty"`
+	Arch string `json:"arch,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	// Actions todo
+	Actions map[string]Action `json:"actions,omitempty"`
 }
 
 // ImageSpec defines the desired state of Image
@@ -109,6 +127,7 @@ type ImageSpec struct {
 
 	//+kubebuilder:validation:Required
 	Name       ImageName       `json:"name,omitempty"`
+	Type       ImageType       `json:"type,omitempty"`
 	DetailInfo ImageDetailInfo `json:"detail,omitempty"`
 }
 
@@ -136,11 +155,34 @@ type Image struct {
 func (i *Image) checkSpecName() bool {
 	return i.Spec.Name.IsLegal()
 }
-
-func (i *Image) checkLables() bool {
+func (i *Image) checkLabels() bool {
 	return i.Labels[SealosOrgLable] == i.Spec.Name.GetOrg() &&
 		i.Labels[SealosRepoLabel] == i.Spec.Name.GetRepo() &&
 		i.Labels[SealosTagLabel] == i.Spec.Name.GetTag()
+}
+func (i *Image) getSpecName() string {
+	return string(i.Spec.Name)
+}
+func (i *Image) getOrgName() string {
+	return i.Spec.Name.GetOrg()
+}
+func (i *Image) getName() string {
+	return i.Name
+}
+
+func (i *Image) MulateFromOldobj(old *Image) {
+	if i.Spec.DetailInfo.Docs == "" {
+		i.Spec.DetailInfo.Docs = old.Spec.DetailInfo.Docs
+	}
+	if i.Spec.DetailInfo.Icon == "" {
+		i.Spec.DetailInfo.Icon = old.Spec.DetailInfo.Icon
+	}
+	if i.Spec.DetailInfo.Description == "" {
+		i.Spec.DetailInfo.Description = old.Spec.DetailInfo.Description
+	}
+	if len(i.Spec.DetailInfo.Keywords) == 0 {
+		i.Spec.DetailInfo.Keywords = old.Spec.DetailInfo.Keywords
+	}
 }
 
 //+kubebuilder:object:root=true

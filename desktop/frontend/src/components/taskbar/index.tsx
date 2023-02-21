@@ -43,13 +43,13 @@ const Taskbar = () => {
           return (
             <div
               onClick={() => {
-                switchApp(item);
+                switchApp({ ...item, mask: false });
               }}
               key={index}
               className={clsx({
                 [styles.tsIcon]: true,
                 [styles.opened]: true,
-                [styles.actived]: item.name === currentApp?.name
+                [styles.actived]: item.name === currentApp?.name && currentApp?.size !== 'minimize'
               })}
             >
               <Icon src={item.icon} width={24} ext />

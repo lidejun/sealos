@@ -21,6 +21,7 @@ import (
 
 	"github.com/labring/sealos/pkg/utils/iputils"
 	"github.com/labring/sealos/pkg/utils/maps"
+	"github.com/labring/sealos/pkg/utils/versionutil"
 )
 
 func (c *Cluster) GetSSH() SSH {
@@ -100,11 +101,6 @@ func (c *Cluster) GetMaster0IPAndPort() string {
 	return ""
 }
 
-func (c *Cluster) GetMaster0IPAPIServer() string {
-	master0 := c.GetMaster0IP()
-	return fmt.Sprintf("https://%s:6443", master0)
-}
-
 func (c *Cluster) GetIPSByRole(role string) []string {
 	var hosts []string
 	for _, host := range c.Spec.Hosts {
@@ -178,6 +174,44 @@ func (c *Cluster) SetMountImage(targetMount *MountImage) {
 	}
 }
 
+func (c *Cluster) ReplaceRootfsImage() {
+	i1, i2 := -1, -1
+	var v1, v2 string
+	for i := range c.Status.Mounts {
+		img := c.Status.Mounts[i]
+		if img.Type == RootfsImage {
+			if v1 == "" {
+				v1, i1 = img.Labels[ImageKubeVersionKey], i
+			} else {
+				v2, i2 = img.Labels[ImageKubeVersionKey], i
+			}
+		}
+	}
+	//if no two rootfsImages, never replace
+	if v1 == "" || v2 == "" {
+		return
+	}
+	//if version format error, never replace
+	if versionutil.Compare(v2, v1) {
+		c.Status.Mounts[i1], c.Status.Mounts[i2] = c.Status.Mounts[i2], c.Status.Mounts[i1]
+		c.Status.Mounts = append(c.Status.Mounts[:i2], c.Status.Mounts[i2+1:]...)
+	} else if versionutil.Compare(v1, v2) {
+		c.Status.Mounts[i2], c.Status.Mounts[i1] = c.Status.Mounts[i1], c.Status.Mounts[i2]
+		c.Status.Mounts = append(c.Status.Mounts[:i1], c.Status.Mounts[i1+1:]...)
+	}
+}
+
+func (c *Cluster) SetNewImages(images []string) {
+	imageSets := map[string]struct{}{}
+	for _, img := range c.Spec.Image {
+		imageSets[img] = struct{}{}
+	}
+	for _, img := range images {
+		if _, ok := imageSets[img]; !ok {
+			c.Spec.Image = append(c.Spec.Image, img)
+		}
+	}
+}
 func (c *Cluster) GetImageLabels() map[string]string {
 	var imageLabelMap map[string]string
 	for _, img := range c.Status.Mounts {

@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,8 @@ type RepositorySpec struct {
 
 	//+kubebuilder:validation:Required
 	Name RepoName `json:"name"` // e.g: "libring/mysql"
+	//+kubebuilder:default:=false
+	IsPrivate bool `json:"isPrivate"`
 }
 
 type RepoName string
@@ -68,9 +71,10 @@ type TagList []TagData
 type RepositoryStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Name      RepoName `json:"name,omitempty"` // e.g: "libring/mysql"
-	Tags      TagList  `json:"tags,omitempty"`
-	LatestTag *TagData `json:"latestTag,omitempty"`
+	Name          RepoName `json:"name,omitempty"` // e.g: "libring/mysql"
+	DownloadCount int64    `json:"downloadCount,omitempty"`
+	Tags          TagList  `json:"tags,omitempty"`
+	LatestTag     *TagData `json:"latestTag,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -89,10 +93,31 @@ type Repository struct {
 func (r *Repository) checkSpecName() bool {
 	return r.Spec.Name.IsLegal()
 }
-
-func (r *Repository) checkLables() bool {
+func (r *Repository) checkLabels() bool {
 	return r.Labels[SealosOrgLable] == r.Spec.Name.GetOrg() &&
 		r.Labels[SealosRepoLabel] == r.Spec.Name.GetRepo()
+}
+func (r *Repository) getSpecName() string {
+	return string(r.Spec.Name)
+}
+func (r *Repository) getOrgName() string {
+	return r.Spec.Name.GetOrg()
+}
+func (r *Repository) getName() string {
+	return r.Name
+}
+
+func (r *Repository) genKeywordsLabels(img *Image) {
+	if r.Labels == nil {
+		r.Labels = make(map[string]string)
+	}
+	for _, keyword := range img.Spec.DetailInfo.Keywords {
+		if _, ok := supportedKeywordsMap[keyword]; ok {
+			// if keyword is supported, add it to label.
+			label := fmt.Sprintf("%s%s", KeywordsLabelPrefix, keyword)
+			r.Labels[label] = ""
+		}
+	}
 }
 
 //+kubebuilder:object:root=true

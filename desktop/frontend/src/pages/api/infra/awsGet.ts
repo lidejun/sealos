@@ -26,9 +26,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const infraDesc = await GetCRD(kc, infra_meta, infraName);
     JsonResp(infraDesc.body, res);
   } catch (err) {
-    if (err instanceof k8s.HttpError) {
-      console.log(err.body.message);
-    }
     JsonResp(err, res);
   }
 }

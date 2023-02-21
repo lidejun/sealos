@@ -34,30 +34,32 @@ const SELECT_DISKS = [
 ];
 
 const generateTemplate = (infraForm: any) => {
-  const text = ` 
-\`\`\`yaml
+  const text = `\`\`\`yaml
 apiVersion: infra.sealos.io/v1
 kind: Infra
 metadata:
-  name: ${infraForm.infraName}
+  name: "${infraForm.infraName}"
 spec:
   hosts:
   - roles: [master] 
     count: ${infraForm.masterCount}
     flavor: ${infraForm.masterType}
-    image: "ami-0d66b970b9f16f1f5"
+    image: "${infraForm.infraImage}"
     disks:
     - capacity: ${infraForm.masterDisk}
-      type: ${infraForm.masterDiskType}
-      name: "/dev/sda2"
+      volumeType: ${infraForm.masterDiskType}
+      # allowed value is root|data
+      type: "root"
+
   - roles: [ node ] 
     count: ${infraForm.nodeCount} 
     flavor: ${infraForm.nodeType}
-    image: "ami-0d66b970b9f16f1f5"
+    image: "${infraForm.infraImage}"
     disks:
     - capacity: ${infraForm.nodeDisk}
-      type: ${infraForm.nodeDiskType}
-      name: "/dev/sda2"
+      volumeType: ${infraForm.nodeDiskType}
+      # allowed value is root|data
+      type: "root"
 ---
 apiVersion: cluster.sealos.io/v1
 kind: Cluster
@@ -68,8 +70,7 @@ spec:
   image:
     - ${infraForm.image1}
     - ${infraForm.image2}
-\`\`\`
-`;
+\`\`\``;
   return text;
 };
 
@@ -78,4 +79,40 @@ const ConvertKeyToLabel = (key: string) => {
   return item?.label;
 };
 
-export { TABLE_HEADERS, SELECT_NODES, SELECT_DISKS, generateTemplate, ConvertKeyToLabel };
+function conversionPrice(price: number, reserve: number = 2) {
+  return price.toFixed(reserve);
+}
+
+let timeout: any = null;
+/**
+ *
+ * @param {Function} func
+ * @param {Number} wait
+ * @param {Boolean} immediate
+ * @return null
+ */
+const debounce = (func: Function, wait = 1000, immediate = false) => {
+  if (timeout !== null) clearTimeout(timeout);
+  if (immediate) {
+    const callNow = !timeout;
+
+    timeout = setTimeout(function () {
+      timeout = null;
+    }, wait);
+    if (callNow) typeof func === 'function' && func();
+  } else {
+    timeout = setTimeout(function () {
+      typeof func === 'function' && func();
+    }, wait);
+  }
+};
+
+export {
+  TABLE_HEADERS,
+  SELECT_NODES,
+  SELECT_DISKS,
+  generateTemplate,
+  ConvertKeyToLabel,
+  conversionPrice,
+  debounce
+};
