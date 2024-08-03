@@ -15,11 +15,15 @@
 package buildah
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
+	"github.com/labring/sealos/pkg/system"
+
+	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/storage/pkg/homedir"
 	"github.com/containers/storage/pkg/unshare"
@@ -30,6 +34,8 @@ import (
 )
 
 var (
+	// use the defaultOverrideConfigFile var as default
+	defaultOverrideConfigFile          = "/etc/containers/storage.conf"
 	DefaultConfigFile                  string
 	DefaultSignaturePolicyPath         = config.DefaultSignaturePolicyPath
 	DefaultRootlessSignaturePolicyPath = "containers/policy.json"
@@ -39,19 +45,40 @@ var (
 )
 
 func init() {
-	var err error
-	DefaultConfigFile, err = types.DefaultConfigFile(IsRootless())
-	if err != nil {
-		logger.Fatal(err)
+	_ = os.Setenv("TMPDIR", parse.GetTempDir())
+
+	// storage config path
+	if path, ok := os.LookupEnv(system.ContainerStorageConfEnvKey); ok {
+		DefaultConfigFile = path
+	} else if !unshare.IsRootless() {
+		DefaultConfigFile = defaultOverrideConfigFile
+	} else {
+		var err error
+		DefaultConfigFile, err = types.DefaultConfigFile(true)
+		bailOnError(err, "")
 	}
-	if IsRootless() {
+	// config path
+	if unshare.IsRootless() {
 		configHome, err := homedir.GetConfigHome()
-		if err != nil {
-			logger.Fatal(err)
-		}
+		bailOnError(err, "")
 		DefaultSignaturePolicyPath = filepath.Join(configHome, DefaultRootlessSignaturePolicyPath)
 		DefaultRegistriesFilePath = filepath.Join(configHome, DefaultRootlessRegistriesFilePath)
 	}
+
+	// setters
+	if unshare.IsRootless() {
+		defaultSetters = append(defaultSetters,
+			determineIfRootlessPackagePresent,
+		)
+	} else if isRunningInContainer() {
+		defaultSetters = append(defaultSetters, func() error {
+			deps := map[string][]string{"fuse-overlayfs": {"fuse-overlayfs"}}
+			return determineIfPackagePresent(deps)
+		})
+	}
+
+	defaultSetters = append(defaultSetters, maybeReexecUsingUserNamespace)
+	defaultSetters = append(defaultSetters, configSetters...)
 }
 
 const defaultPolicy = `
@@ -78,24 +105,57 @@ prefix = "docker.io/labring"
 location = "docker.io/labring"
 `
 
-const defaultStorageConf = `[storage]
+const (
+	defaultRootStorageConf = `[storage]
 driver = "overlay"
 runroot = "/run/containers/storage"
 graphroot = "/var/lib/containers/storage"`
+	defaultRootlessStorageConf = `[storage]
+driver = "overlay"
+runroot = "%s"`
+	storageOptionsOverlaySnippet = `
+[storage.options.overlay]
+mount_program = "/bin/fuse-overlayfs"
+mountopt = "nodev,fsync=0"`
+)
 
-func SetupContainerPolicy() error {
+// todo: what if running by containerd?
+func isRunningInContainer() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return false
+}
+
+func setupContainerPolicy() error {
 	return writeFileIfNotExists(DefaultSignaturePolicyPath, []byte(defaultPolicy))
 }
 
-func SetupRegistriesFile() error {
+func setupRegistriesFile() error {
 	return writeFileIfNotExists(DefaultRegistriesFilePath, []byte(defaultRegistries))
 }
 
-func SetupStorageConfigFile() error {
-	if IsRootless() {
-		return nil
+func setupStorageConfigFile() error {
+	logger.Debug("using file %s as container storage config", DefaultConfigFile)
+	var content string
+	if unshare.IsRootless() {
+		runRoot := fmt.Sprintf("/run/user/%d", unshare.GetRootlessUID())
+		if err := os.MkdirAll(runRoot, 0755); err != nil && errors.Is(err, os.ErrPermission) {
+			// has not permission, then use cache home
+			cacheHome, err := homedir.GetCacheHome()
+			if err != nil {
+				return err
+			}
+			runRoot = cacheHome
+		}
+		content = fmt.Sprintf(defaultRootlessStorageConf, runRoot)
+	} else {
+		content = defaultRootStorageConf
 	}
-	return writeFileIfNotExists(DefaultConfigFile, []byte(defaultStorageConf))
+	if unshare.IsRootless() || isRunningInContainer() {
+		content += storageOptionsOverlaySnippet
+	}
+	return writeFileIfNotExists(DefaultConfigFile, []byte(content))
 }
 
 func writeFileIfNotExists(filename string, data []byte) error {
@@ -107,45 +167,39 @@ func writeFileIfNotExists(filename string, data []byte) error {
 	return err
 }
 
-func DetermineIfRootlessPackagePresent() error {
-	if !IsRootless() {
-		return nil
-	}
+func determineIfRootlessPackagePresent() error {
 	deps := map[string][]string{"uidmap": {"newuidmap", "newgidmap"}, "fuse-overlayfs": {"fuse-overlayfs"}}
+	if err := determineIfPackagePresent(deps); err != nil {
+		return fmt.Errorf("%s or consider running in root mode", err.Error())
+	}
+	return nil
+}
+
+func determineIfPackagePresent(deps map[string][]string) error {
 	for pkg, executables := range deps {
 		for i := range executables {
 			if _, err := exec.LookPath(executables[i]); err != nil {
-				return fmt.Errorf("executable file '%s' not found in $PATH, consider run in root mode or install package '%s' first", executables[i], pkg)
+				return fmt.Errorf("executable file '%s' not found in $PATH, install package '%s' first", executables[i], pkg)
 			}
 		}
 	}
 	return nil
 }
 
-func MaybeReexecUsingUserNamespace() error {
-	if !IsRootless() {
-		return nil
-	}
-	if _, present := os.LookupEnv("BUILDAH_ISOLATION"); !present {
-		if err := os.Setenv("BUILDAH_ISOLATION", "rootless"); err != nil {
-			return fmt.Errorf("error setting BUILDAH_ISOLATION=rootless in environment: %v", err)
-		}
-	}
-
-	// force reexec using the configured ID mappings
-	unshare.MaybeReexecUsingUserNamespace(true)
+func maybeReexecUsingUserNamespace() error {
+	unshare.MaybeReexecUsingUserNamespace(false)
 	return nil
 }
 
 type Setter func() error
 
-var defaultSetters = []Setter{
-	DetermineIfRootlessPackagePresent,
-	MaybeReexecUsingUserNamespace,
-	SetupContainerPolicy,
-	SetupRegistriesFile,
-	SetupStorageConfigFile,
+var configSetters = []Setter{
+	setupContainerPolicy,
+	setupRegistriesFile,
+	setupStorageConfigFile,
 }
+
+var defaultSetters = []Setter{}
 
 func TrySetupWithDefaults(setters ...Setter) error {
 	if len(setters) == 0 {

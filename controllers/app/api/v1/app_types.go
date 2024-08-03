@@ -1,5 +1,5 @@
 /*
-Copyright 2022.
+Copyright 2023.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,24 +20,49 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type Data struct {
+	URL  string `json:"url,omitempty"`
+	Desc string `json:"desc,omitempty"`
+}
 
-type UIEndPoint struct {
-	Name  string `json:"name,omitempty"`
-	Theme string `json:"theme,omitempty"`
-	URL   string `json:"url,omitempty"`
+type MenuData struct {
+	Name string `json:"name,omitempty"`
+	Link string `json:"link,omitempty"`
+}
+
+type DisplayType string
+
+// data types
+const (
+	DisplayNormal DisplayType = "normal"
+	DisplayMore   DisplayType = "more"
+	DisplayHidden DisplayType = "hidden"
+)
+
+// AppMeta Base Information
+type AppMeta struct {
+	Name string `json:"name,omitempty"`
+	Icon string `json:"icon,omitempty"`
+	Type string `json:"type,omitempty"`
+
+	//+kubebuilder:validation:Enum={ normal, more, hidden, }
+	//+kubebuilder:validation:Optional
+	DisplayType DisplayType `json:"displayType,omitempty"`
+
+	Data     Data       `json:"data,omitempty"`
+	MenuData []MenuData `json:"menuData,omitempty"`
 }
 
 // AppSpec defines the desired state of App
 type AppSpec struct {
-	UIEndPoints UIEndPoint `json:"uiEndPoints,omitempty"`
+	AppMeta `json:",inline"`
+
+	//+kubebuilder:validation:Optional
+	I18N *map[string]AppMeta `json:"i18n,omitempty"`
 }
 
 // AppStatus defines the observed state of App
 type AppStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true

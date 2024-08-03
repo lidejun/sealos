@@ -21,12 +21,14 @@ import (
 	"os"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+
+	"github.com/labring/sealos/controllers/pkg/pay"
+
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/labring/sealos/pkg/pay"
-
-	"github.com/mdp/qrterminal"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,6 +42,7 @@ type PaymentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Logger logr.Logger
+	domain string
 }
 
 //+kubebuilder:rbac:groups=account.sealos.io,resources=payments,verbs=get;list;watch;create;update;patch;delete
@@ -69,34 +72,43 @@ func (r *PaymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if p.Status.Status == "" {
 		p.Status.Status = "Created"
 		if err := r.Status().Update(ctx, p); err != nil {
-			r.Logger.Error(err, "update payment failed: %v", *p)
+			r.Logger.Error(err, "update payment failed: %v", "payment", *p)
 			return ctrl.Result{Requeue: true}, err
 		}
 	}
-	tradeNO := pay.GetRandomString(32)
-	codeURL, err := pay.WechatPay(p.Spec.Amount, p.Spec.UserID, tradeNO, "", "")
+
+	// get payment handler
+	payHandler, err := pay.NewPayHandler(p.Spec.PaymentMethod)
 	if err != nil {
-		r.Logger.Error(err, "get codeURL failed")
+		r.Logger.Error(err, "get payment Interface failed")
+		return ctrl.Result{}, err
+	}
+	// get tradeNO and codeURL
+	tradeNO, codeURL, err := payHandler.CreatePayment(p.Spec.Amount/10000, p.Spec.UserID, "sealos cloud pay [domain="+r.domain+"]")
+	if err != nil {
+		r.Logger.Error(err, "get tradeNO and codeURL failed")
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 	}
 	p.Status.CodeURL = codeURL
 	p.Status.TradeNO = tradeNO
 
 	if err := r.Status().Update(ctx, p); err != nil {
-		r.Logger.Error(err, "update payment failed: %v", *p)
+		r.Logger.Error(err, "update payment failed: %v", "payment", *p)
 		return ctrl.Result{}, err
 	}
 
-	qrterminal.Generate(codeURL, qrterminal.L, os.Stdout)
+	//qrterminal.Generate(codeURL, qrterminal.L, os.Stdout)
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PaymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *PaymentReconciler) SetupWithManager(mgr ctrl.Manager, rateOpts controller.Options) error {
 	const controllerName = "payment_controller"
 	r.Logger = ctrl.Log.WithName(controllerName)
 	r.Logger.V(1).Info("init reconcile controller payment")
+	r.domain = os.Getenv("DOMAIN")
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&accountv1.Payment{}).
+		For(&accountv1.Payment{}, builder.WithPredicates(OnlyCreatePredicate{})).
+		WithOptions(rateOpts).
 		Complete(r)
 }

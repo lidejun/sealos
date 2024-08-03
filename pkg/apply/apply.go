@@ -21,12 +21,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/labring/sealos/pkg/apply/applydrivers"
 	"github.com/labring/sealos/pkg/clusterfile"
 	"github.com/labring/sealos/pkg/constants"
 )
 
-func NewApplierFromFile(path string, args *Args) (applydrivers.Interface, error) {
+func NewApplierFromFile(cmd *cobra.Command, path string, args *Args) (applydrivers.Interface, error) {
 	if !filepath.IsAbs(path) {
 		pa, err := os.Getwd()
 		if err != nil {
@@ -48,6 +50,10 @@ func NewApplierFromFile(path string, args *Args) (applydrivers.Interface, error)
 		return nil, fmt.Errorf("cluster name cannot be empty, make sure %s file is correct", path)
 	}
 
+	if err := CheckAndInitialize(cluster); err != nil {
+		return nil, err
+	}
+
 	localpath := constants.Clusterfile(cluster.Name)
 	cf := clusterfile.NewClusterFile(localpath)
 	err := cf.Process()
@@ -56,10 +62,13 @@ func NewApplierFromFile(path string, args *Args) (applydrivers.Interface, error)
 	}
 	currentCluster := cf.GetCluster()
 
+	ctx := withCommonContext(cmd.Context(), cmd)
+
 	return &applydrivers.Applier{
+		Context:        ctx,
 		ClusterDesired: cluster,
 		ClusterFile:    Clusterfile,
 		ClusterCurrent: currentCluster,
-		RunNewImages:   nil,
+		RunNewImages:   GetNewImages(currentCluster, cluster),
 	}, nil
 }

@@ -21,15 +21,17 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/containerd/containerd/platforms"
 	"github.com/containers/buildah"
+	"github.com/containers/buildah/pkg/parse"
 	"github.com/containers/common/pkg/umask"
 	is "github.com/containers/image/v5/storage"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
+	"github.com/labring/sealos/pkg/system"
 	wrapunshare "github.com/labring/sealos/pkg/unshare"
 	"github.com/labring/sealos/pkg/utils/logger"
 )
@@ -40,8 +42,7 @@ var (
 )
 
 var (
-	DefaultPlatform = platforms.DefaultSpec
-	IsRootless      = wrapunshare.IsRootless
+	IsRootless = wrapunshare.IsRootless
 )
 
 func flagChanged(c *cobra.Command, name string) bool {
@@ -49,10 +50,6 @@ func flagChanged(c *cobra.Command, name string) bool {
 		return true
 	}
 	return false
-}
-
-func setDefaultFlags(c *cobra.Command) error {
-	return setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag)
 }
 
 func setDefaultFlagsWithSetters(c *cobra.Command, setters ...func(*cobra.Command) error) error {
@@ -64,32 +61,81 @@ func setDefaultFlagsWithSetters(c *cobra.Command, setters ...func(*cobra.Command
 	return nil
 }
 
+func getPlatformFlags() *pflag.FlagSet {
+	fs := &pflag.FlagSet{}
+	fs.String("arch", runtime.GOARCH, "set the ARCH of the image to the provided value instead of the architecture of the host")
+	fs.String("os", runtime.GOOS, "set the OS to the provided value instead of the current operating system of the host")
+	fs.StringSlice("platform", []string{parse.DefaultPlatform()}, "set the OS/ARCH/VARIANT of the image to the provided value instead of the current operating system and architecture of the host (for example `linux/arm`)")
+	fs.String("variant", "", "override the `variant` of the specified image")
+	return fs
+}
+
+func flagsAssociatedWithPlatform() []string {
+	return []string{
+		"arch", "os", "os-feature", "os-version", "variant",
+	}
+}
+
+func flagsInBuildCommandToBeHidden() []string {
+	return []string{
+		"add-host",
+		"cap-add",
+		"cap-drop",
+		"cgroup-parent",
+		"cgroupns",
+		"cpp-flag",
+		"cpu-period",
+		"cpu-quota",
+		"cpu-shares",
+		"cpuset-cpus",
+		"cpuset-mems",
+		"decryption-key",
+		"device",
+		"disable-content-trust",
+		"hooks-dir",
+		"identity-label",
+		"iidfile",
+		"ipc",
+		"logfile",
+		"logsplit",
+		"memory",
+		"memory-swap",
+		"network",
+		"no-hosts",
+		"pid",
+		"runtime",
+		"runtime-flag",
+		"secret",
+		"security-opt",
+		"ssh",
+		"stdin",
+		"ulimit",
+		"unsetenv",
+		"userns",
+		"userns-gid-map",
+		"userns-gid-map-group",
+		"userns-uid-map",
+		"userns-uid-map-user",
+		"uts",
+		"volume",
+	}
+}
+
 func setDefaultTLSVerifyFlag(c *cobra.Command) error {
 	return setDefaultFlagIfNotChanged(c, "tls-verify", "false")
 }
 
-func getArchFromFlag(c *cobra.Command) string {
-	arch, err := c.Flags().GetString("arch")
-	if err != nil {
-		return runtime.GOARCH
-	}
-	return arch
+func setDefaultSaveImageFlag(c *cobra.Command) error {
+	return setDefaultFlagIfNotChanged(c, "save-image", "false")
 }
 
-func getOSFromFlag(c *cobra.Command) string {
-	oss, err := c.Flags().GetString("os")
+func getPlatformFromFlags(c *cobra.Command) []string {
+	platforms, err := c.Flags().GetStringSlice("platform")
 	if err != nil {
-		return runtime.GOOS
+		logger.Error("failed to get platform from flags: %v", err)
+		return []string{}
 	}
-	return oss
-}
-
-func getVariantFromFlags(c *cobra.Command) string {
-	variant, err := c.Flags().GetString("variant")
-	if err != nil {
-		return ""
-	}
-	return variant
+	return platforms
 }
 
 func getTagsFromFlags(c *cobra.Command) []string {
@@ -250,11 +296,8 @@ func getContext() context.Context {
 }
 
 func defaultFormat() string {
-	format := os.Getenv("BUILDAH_FORMAT")
-	if format != "" {
-		return format
-	}
-	return buildah.OCI
+	format, _ := system.Get(system.BuildahFormatConfigKey)
+	return format
 }
 
 // Tail returns a string slice after the first element unless there are

@@ -18,22 +18,20 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/labring/sealos/pkg/utils/logger"
-
 	v1 "k8s.io/api/core/v1"
-
-	"github.com/pkg/errors"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	netutil "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
+
+	"github.com/labring/sealos/pkg/utils/logger"
 )
 
 // Healthy is an interface for waiting for criteria in Kubernetes to happen
@@ -65,7 +63,9 @@ func NewKubeHealthy(client clientset.Interface, timeout time.Duration) Healthy {
 // ForAPI waits for the API Server's /healthz endpoint to report "ok"
 func (w *kubeHealthy) ForAPI() error {
 	start := time.Now()
-	return wait.PollImmediate(APICallRetryInterval, w.timeout, func() (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), w.timeout)
+	defer cancel()
+	return wait.PollUntilContextCancel(ctx, APICallRetryInterval, true, func(ctx context.Context) (done bool, err error) {
 		healthStatus := 0
 		w.client.Discovery().RESTClient().Get().AbsPath("/healthz").Do(context.TODO()).StatusCode(&healthStatus)
 		if healthStatus != http.StatusOK {

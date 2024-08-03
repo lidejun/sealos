@@ -20,6 +20,7 @@ import (
 
 	"github.com/containers/buildah"
 	"github.com/containers/buildah/pkg/parse"
+	"github.com/containers/common/libimage"
 	"github.com/containers/image/v5/transports"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage"
@@ -39,6 +40,7 @@ type Interface interface {
 	Delete(name string) error
 	InspectContainer(name string) (buildah.BuilderInfo, error)
 	ListContainers() ([]JSONContainer, error)
+	Runtime() *Runtime
 }
 
 func New(id string) (Interface, error) {
@@ -51,10 +53,15 @@ func New(id string) (Interface, error) {
 		return nil, err
 	}
 	setDefaultSystemContext(systemContext)
+	r, err := getRuntimeWithStoreAndSystemContext(store, systemContext)
+	if err != nil {
+		return nil, err
+	}
 	return &realImpl{
 		id:            id,
 		store:         store,
 		systemContext: systemContext,
+		runtime:       r,
 	}, nil
 }
 
@@ -62,6 +69,11 @@ type realImpl struct {
 	id            string // as identity prefix
 	store         storage.Store
 	systemContext *types.SystemContext
+	runtime       *Runtime
+}
+
+func (impl *realImpl) Runtime() *Runtime {
+	return impl.runtime
 }
 
 type FlagSetter func(*pflag.FlagSet) error
@@ -105,7 +117,7 @@ func (impl *realImpl) Pull(imageNames []string, opts ...FlagSetter) error {
 			return err
 		}
 	}
-	if err := setDefaultFlags(cmd); err != nil {
+	if err := setDefaultFlagsWithSetters(cmd, setDefaultTLSVerifyFlag); err != nil {
 		return err
 	}
 	ids, err := doPull(cmd, impl.store, nil, imageNames, iopt)
@@ -174,7 +186,7 @@ func (impl *realImpl) from(name, image string, opts ...FlagSetter) (*buildah.Bui
 			return nil, err
 		}
 	}
-	if err := setDefaultFlags(cmd); err != nil {
+	if err := setDefaultFlagsWithSetters(cmd, setDefaultTLSVerifyFlag); err != nil {
 		return nil, err
 	}
 	return doFrom(cmd, image, iopts, impl.store, nil)
@@ -222,11 +234,11 @@ func (impl *realImpl) ListContainers() ([]JSONContainer, error) {
 	return jsonContainers, err
 }
 
-func (impl *realImpl) Load(input string, ociType string) (string, error) {
-	ids, err := doPull(impl.mockCmd(), impl.store, impl.systemContext, []string{fmt.Sprintf("%s:%s", ociType, input)}, newDefaultPullOptions())
+func (impl *realImpl) Load(input string, transport string) (string, error) {
+	ref := FormatReferenceWithTransportName(transport, input)
+	names, err := impl.runtime.PullOrLoadImages(getContext(), []string{ref}, libimage.CopyOptions{})
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("%s\n", ids[0])
-	return ids[0], nil
+	return names[0], nil
 }

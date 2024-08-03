@@ -94,6 +94,7 @@ func (opts *pushOptions) RegisterFlags(fs *pflag.FlagSet) error {
 	fs.StringSliceVar(&opts.encryptionKeys, "encryption-key", opts.encryptionKeys, "key with the encryption protocol to use needed to encrypt the image (e.g. jwe:/path/to/key.pem)")
 	fs.IntSliceVar(&opts.encryptLayers, "encrypt-layer", opts.encryptLayers, "layers to encrypt, 0-indexed layer indices with support for negative indexing (e.g. 0 is the first layer, -1 is the last layer). If not defined, will encrypt all layers if encryption-key flag is specified")
 	fs.BoolVar(&opts.tlsVerify, "tls-verify", opts.tlsVerify, "require HTTPS and verify certificates when accessing the registry. TLS verification cannot be used when talking to an insecure registry.")
+
 	return markFlagsHidden(fs, []string{"signature-policy", "blob-cache", "tls-verify"}...)
 }
 
@@ -116,9 +117,6 @@ func newPushCommand() *cobra.Command {
 		Long:  pushDescription,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return pushCmd(cmd, args, opts)
-		},
-		PostRun: func(cmd *cobra.Command, args []string) {
-			NewAndRunImageCRBuilder(cmd, args)
 		},
 		Example: fmt.Sprintf(`%[1]s push imageID docker://registry.example.com/repository:tag
   %[1]s push imageID docker-daemon:image:tagi
@@ -187,7 +185,7 @@ func pushCmd(c *cobra.Command, args []string, iopts *pushOptions) error {
 		dest = dest2
 		logger.Debug("Assuming docker:// as the transport method for DESTINATION: %s", destSpec)
 	}
-	if err := setDefaultFlags(c); err != nil {
+	if err := setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag); err != nil {
 		return err
 	}
 	systemContext, err := parse.SystemContextFromOptions(c)

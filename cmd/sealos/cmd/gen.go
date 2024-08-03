@@ -24,21 +24,25 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/labring/sealos/pkg/apply"
+	"github.com/labring/sealos/pkg/utils/logger"
 )
 
 var exampleGen = `
+generate a single-node cluster using the default settings:
+    sealos gen labring/kubernetes:v1.25.0 labring/helm:v3.8.2 labring/calico:v3.24.1
+
 generate a cluster with multi images, specify masters and nodes:
     sealos gen labring/kubernetes:v1.25.0 labring/helm:v3.8.2 labring/calico:v3.24.1 \
         --masters 192.168.0.2,192.168.0.3,192.168.0.4 \
-        --nodes 192.168.0.5,192.168.0.6,192.168.0.7 --passwd xxx
+        --nodes 192.168.0.5,192.168.0.6,192.168.0.7 --passwd 'xxx'
 
 specify server InfraSSH port:
   all servers use the same InfraSSH port：
     sealos gen labring/kubernetes:v1.24.0 --masters 192.168.0.2,192.168.0.3,192.168.0.4 \
-        --nodes 192.168.0.5,192.168.0.6,192.168.0.7 --port 24 --passwd xxx
+        --nodes 192.168.0.5,192.168.0.6,192.168.0.7 --port 24 --passwd 'xxx'
   different InfraSSH port numbers：
     sealos gen labring/kubernetes:v1.24.0 --masters 192.168.0.2,192.168.0.3:23,192.168.0.4:24 \
-        --nodes 192.168.0.5:25,192.168.0.6:25,192.168.0.7:27 --passwd xxx
+        --nodes 192.168.0.5:25,192.168.0.6:25,192.168.0.7:27 --passwd 'xxx'
 `
 
 func newGenCmd() *cobra.Command {
@@ -46,20 +50,23 @@ func newGenCmd() *cobra.Command {
 		Cluster: &apply.Cluster{},
 		SSH:     &apply.SSH{},
 	}
+
 	var out string
 	var genCmd = &cobra.Command{
 		Use:     "gen",
 		Short:   "generate a Clusterfile with all default settings",
 		Long:    `generate a Clusterfile of the kubernetes cluster, which can be applied by 'sealos apply' command`,
 		Example: exampleGen,
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := apply.NewClusterFromGenArgs(args, genArgs)
+			data, err := apply.NewClusterFromGenArgs(cmd, genArgs, args)
 			if err != nil {
 				return err
 			}
 			var outputWriter io.WriteCloser
 			switch out {
 			case "", "stdout":
+				logger.Info("if you want to save the output of gen command, use '--output' option instead of redirecting to file")
 				outputWriter = os.Stdout
 			default:
 				outputWriter, err = os.Create(out)
@@ -72,8 +79,10 @@ func newGenCmd() *cobra.Command {
 			return err
 		},
 	}
+	setRequireBuildahAnnotation(genCmd)
 	genArgs.RegisterFlags(genCmd.Flags())
 	genCmd.Flags().StringVarP(&out, "output", "o", "", "print output to named file")
+
 	return genCmd
 }
 

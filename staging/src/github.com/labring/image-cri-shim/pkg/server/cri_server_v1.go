@@ -19,15 +19,30 @@ package server
 import (
 	"context"
 
-	"github.com/labring/image-cri-shim/pkg/types"
+	"github.com/docker/docker/api/types"
+
+	"github.com/google/go-containerregistry/pkg/name"
+
 	api "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/labring/sealos/pkg/utils/logger"
 )
 
 type v1ImageService struct {
-	imageClient api.ImageServiceClient
-	CRIConfigs  map[string]types.AuthConfig
+	imageClient       api.ImageServiceClient
+	CRIConfigs        map[string]types.AuthConfig
+	OfflineCRIConfigs map[string]types.AuthConfig
+}
+
+func ToV1AuthConfig(c *types.AuthConfig) *api.AuthConfig {
+	return &api.AuthConfig{
+		Username:      c.Username,
+		Password:      c.Password,
+		Auth:          c.Auth,
+		ServerAddress: c.ServerAddress,
+		IdentityToken: c.IdentityToken,
+		RegistryToken: c.RegistryToken,
+	}
 }
 
 func (s *v1ImageService) ListImages(ctx context.Context,
@@ -46,7 +61,11 @@ func (s *v1ImageService) ImageStatus(ctx context.Context,
 	req *api.ImageStatusRequest) (*api.ImageStatusResponse, error) {
 	logger.Debug("ImageStatus: %+v", req)
 	if req.Image != nil {
-		req.Image.Image = replaceImage(req.Image.Image, "ImageStatus", s.CRIConfigs)
+		if id, _ := s.GetImageRefByID(ctx, req.Image.Image); id != "" {
+			req.Image.Image = id
+		} else {
+			req.Image.Image, _, _ = replaceImage(req.Image.Image, "ImageStatus", s.OfflineCRIConfigs)
+		}
 	}
 	rsp, err := s.imageClient.ImageStatus(ctx, req)
 
@@ -61,15 +80,19 @@ func (s *v1ImageService) PullImage(ctx context.Context,
 	req *api.PullImageRequest) (*api.PullImageResponse, error) {
 	logger.Debug("PullImage begin: %+v", req)
 	if req.Image != nil {
-		req.Image.Image = replaceImage(req.Image.Image, "PullImage", s.CRIConfigs)
-	}
-	replacedImageDomain, _ := parseImageDomainAndName(req.Image.Image)
-	if req.Auth == nil {
-		if criAuth, ok := s.CRIConfigs[replacedImageDomain]; ok {
-			req.Auth = criAuth.ToV1AuthConfig()
+		imageName, ok, auth := replaceImage(req.Image.Image, "PullImage", s.OfflineCRIConfigs)
+		if ok {
+			req.Auth = ToV1AuthConfig(auth)
+		} else {
+			if req.Auth == nil {
+				ref, _ := name.ParseReference(imageName)
+				if v, ok := s.CRIConfigs[ref.Context().RegistryStr()]; ok {
+					req.Auth = ToV1AuthConfig(&v)
+				}
+			}
 		}
+		req.Image.Image = imageName
 	}
-
 	logger.Debug("PullImage after: %+v", req)
 	rsp, err := s.imageClient.PullImage(ctx, req)
 	if err != nil {
@@ -83,7 +106,11 @@ func (s *v1ImageService) RemoveImage(ctx context.Context,
 	req *api.RemoveImageRequest) (*api.RemoveImageResponse, error) {
 	logger.Debug("RemoveImage: %+v", req)
 	if req.Image != nil {
-		req.Image.Image = replaceImage(req.Image.Image, "RemoveImage", s.CRIConfigs)
+		if id, _ := s.GetImageRefByID(ctx, req.Image.Image); id != "" {
+			req.Image.Image = id
+		} else {
+			req.Image.Image, _, _ = replaceImage(req.Image.Image, "RemoveImage", s.OfflineCRIConfigs)
+		}
 	}
 	rsp, err := s.imageClient.RemoveImage(ctx, req)
 
@@ -104,4 +131,20 @@ func (s *v1ImageService) ImageFsInfo(ctx context.Context,
 	}
 
 	return rsp, err
+}
+
+func (s *v1ImageService) GetImageRefByID(ctx context.Context, image string) (string, error) {
+	resp, err := s.imageClient.ImageStatus(ctx, &api.ImageStatusRequest{
+		Image: &api.ImageSpec{
+			Image: image,
+		},
+	})
+	if err != nil {
+		logger.Warn("Failed to get image %s status: %v", image, err)
+		return "", err
+	}
+	if resp.Image == nil {
+		return "", nil
+	}
+	return resp.Image.Id, nil
 }

@@ -17,24 +17,26 @@ package cmd
 import (
 	"fmt"
 	"path"
-	"strings"
 
-	"github.com/labring/sealos/pkg/apply/processor"
-
-	"github.com/labring/sealos/pkg/clusterfile"
-	"github.com/labring/sealos/pkg/constants"
 	"github.com/labring/sealos/pkg/runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/labring/sealos/pkg/apply/processor"
+	"github.com/labring/sealos/pkg/clusterfile"
+	"github.com/labring/sealos/pkg/constants"
+	"github.com/labring/sealos/pkg/runtime/factory"
+	fileutils "github.com/labring/sealos/pkg/utils/file"
+	"github.com/labring/sealos/pkg/utils/logger"
 )
 
-var altNames string
+func newCertCmd() *cobra.Command {
+	var altNames []string
 
-// certCmd represents the cert command
-var certCmd = &cobra.Command{
-	Use:   "cert",
-	Short: "update Kubernetes API server's cert",
-	Long: `Add domain or ip in certs:
+	cmd := &cobra.Command{
+		Use:   "cert",
+		Short: "update Kubernetes API server's cert",
+		Long: `Add domain or ip in certs:
     you had better backup old certs first.
 	sealos cert --alt-names sealos.io,10.103.97.2,127.0.0.1,localhost
     using "openssl x509 -noout -text -in apiserver.crt" to check the cert
@@ -45,30 +47,50 @@ var certCmd = &cobra.Command{
     2. edit .kube/config, set the apiserver address as 39.105.169.253, (don't forget to open the security group port for 6443, if you using public cloud)
     3. kubectl get pod, to check if it works or not
 `,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cluster, err := clusterfile.GetClusterFromName(clusterName)
-		if err != nil {
-			return fmt.Errorf("get default cluster failed, %v", err)
-		}
-		processor.SyncNewVersionConfig(cluster.Name)
-		clusterPath := constants.Clusterfile(cluster.Name)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			processor.SyncNewVersionConfig(clusterName)
 
-		cf := clusterfile.NewClusterFile(clusterPath,
-			clusterfile.WithCustomKubeadmFiles([]string{path.Join(constants.NewData(cluster.Name).EtcPath(), constants.DefaultInitKubeadmFileName)}),
-		)
-		if err = cf.Process(); err != nil {
-			return err
-		}
-		r, err := runtime.NewDefaultRuntimeByKubeadm(cluster, cf.GetKubeadmConfig())
-		if err != nil {
-			return fmt.Errorf("get default runtime failed, %v", err)
-		}
-		return r.UpdateCert(strings.Split(altNames, ","))
-	},
-}
+			clusterPath := constants.Clusterfile(clusterName)
+			pathResolver := constants.NewPathResolver(clusterName)
 
-func init() {
-	rootCmd.AddCommand(certCmd)
-	certCmd.Flags().StringVarP(&clusterName, "cluster", "c", "default", "name of cluster to applied exec action")
-	certCmd.Flags().StringVar(&altNames, "alt-names", "", "add domain or ip in certs, sealos.io or 10.103.97.2")
+			var runtimeConfigPath string
+
+			for _, f := range []string{
+				path.Join(pathResolver.ConfigsPath(), "kubeadm-init.yaml"),
+				path.Join(pathResolver.EtcPath(), "kubeadm-init.yaml"),
+				path.Join(pathResolver.ConfigsPath(), "k3s-init.yaml"),
+			} {
+				if fileutils.IsExist(f) {
+					runtimeConfigPath = f
+					break
+				}
+			}
+			if runtimeConfigPath == "" {
+				logger.Warn("cannot locate the default runtime config file")
+			}
+			var opts []clusterfile.OptionFunc
+			if runtimeConfigPath != "" {
+				opts = append(opts, clusterfile.WithCustomRuntimeConfigFiles([]string{runtimeConfigPath}))
+			}
+			cf := clusterfile.NewClusterFile(clusterPath, opts...)
+			if err := cf.Process(); err != nil {
+				return err
+			}
+
+			rt, err := factory.New(cf.GetCluster(), cf.GetRuntimeConfig())
+			if err != nil {
+				return fmt.Errorf("create runtime failed: %v", err)
+			}
+			if cm, ok := rt.(runtime.CertManager); ok {
+				logger.Info("using %s cert update implement", cf.GetCluster().GetDistribution())
+				return cm.UpdateCertSANs(altNames)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&clusterName, "cluster", "c", "default", "name of cluster to applied exec action")
+	cmd.Flags().StringSliceVar(&altNames, "alt-names", []string{}, "add extra Subject Alternative Names for certs, domain or ip, eg. sealos.io or 10.103.97.2")
+	_ = cmd.MarkFlagRequired("alt-names")
+
+	return cmd
 }

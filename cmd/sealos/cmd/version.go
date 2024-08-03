@@ -16,21 +16,18 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/labring/sealos/pkg/utils/logger"
-
-	"github.com/pkg/errors"
-
+	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 
 	"github.com/labring/sealos/pkg/clusterfile"
 	"github.com/labring/sealos/pkg/constants"
-
+	"github.com/labring/sealos/pkg/utils/logger"
 	"github.com/labring/sealos/pkg/version"
-
-	"github.com/spf13/cobra"
+	versionutils "github.com/labring/sealos/pkg/version/utils"
 )
 
 var shortPrint bool
@@ -47,15 +44,11 @@ func newVersionCmd() *cobra.Command {
 			if output != "yaml" && output != "json" {
 				return errors.New(`--output must be 'yaml' or 'json'`)
 			}
-
 			if shortPrint {
 				fmt.Println(version.Get().String())
 				return nil
 			}
-			if err := PrintInfo(); err != nil {
-				return err
-			}
-			return nil
+			return PrintInfo()
 		},
 	}
 	versionCmd.Flags().BoolVar(&shortPrint, "short", false, "if true, print just the version number.")
@@ -72,35 +65,23 @@ func getContact() string {
 }
 
 func PrintInfo() error {
-	var (
-		marshalled []byte
-	)
 	OutputInfo := &version.Output{}
 	OutputInfo.SealosVersion = version.Get()
 	cluster, err := clusterfile.GetClusterFromName(clusterName)
 	if err != nil {
 		logger.Debug(err, "fail to find cluster from name")
+		err = PrintToStd(OutputInfo)
+		if err != nil {
+			return err
+		}
+		return nil
 	}
-	OutputInfo.KubernetesVersion = version.GetKubernetesVersion(cluster)
-	OutputInfo.CriRuntimeVersion = version.GetCriRuntimeVersion()
+	OutputInfo.KubernetesVersion = versionutils.GetKubernetesVersion(cluster)
+	OutputInfo.CriRuntimeVersion = versionutils.GetCriRuntimeVersion()
 
-	switch output {
-	case "yaml":
-		marshalled, err = yaml.Marshal(&OutputInfo)
-		if err != nil {
-			return errors.Wrap(err, "fail to marshal yaml")
-		}
-		fmt.Println(string(marshalled))
-	case "json":
-		marshalled, err = json.Marshal(&OutputInfo)
-		if err != nil {
-			return errors.Wrap(err, "fail to marshal json")
-		}
-		fmt.Println(string(marshalled))
-	default:
-		// There is a bug in the program if we hit this case.
-		// However, we follow a policy of never panicking.
-		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected", output)
+	err = PrintToStd(OutputInfo)
+	if err != nil {
+		return err
 	}
 	missinfo := []string{}
 	if OutputInfo.KubernetesVersion == nil {
@@ -110,8 +91,34 @@ func PrintInfo() error {
 		missinfo = append(missinfo, "cri runtime version")
 	}
 	if OutputInfo.KubernetesVersion == nil || OutputInfo.CriRuntimeVersion == nil {
-		fmt.Printf("failed to get %s\ncheck kubernetes status or use commend \"sealos run\" to launch kubernetes\n", strings.Join(missinfo, " and "))
+		fmt.Printf("WARNING: Failed to get %s.\nCheck kubernetes status or use command \"sealos run\" to launch kubernetes\n", strings.Join(missinfo, " and "))
 	}
 
+	return nil
+}
+
+func PrintToStd(OutputInfo *version.Output) error {
+	var (
+		marshalled []byte
+		err        error
+	)
+	switch output {
+	case "yaml":
+		marshalled, err = yaml.Marshal(&OutputInfo)
+		if err != nil {
+			return fmt.Errorf("fail to marshal yaml: %w", err)
+		}
+		fmt.Println(string(marshalled))
+	case "json":
+		marshalled, err = json.Marshal(&OutputInfo)
+		if err != nil {
+			return fmt.Errorf("fail to marshal json: %w", err)
+		}
+		fmt.Println(string(marshalled))
+	default:
+		// There is a bug in the program if we hit this case.
+		// However, we follow a policy of never panicking.
+		return fmt.Errorf("versionOptions were not validated: --output=%q should have been rejected", output)
+	}
 	return nil
 }

@@ -26,8 +26,6 @@ var (
 	REGISTRY = "registry"
 )
 
-type Provider string
-
 type Arch string
 
 const (
@@ -35,9 +33,6 @@ const (
 	ARM64 Arch = "arm64"
 )
 
-type Protocol string
-
 const (
-	ProtocolTCP Protocol = "tcp"
-	ProtocolUDP Protocol = "udp"
+	DefaultSSHPort = 22
 )

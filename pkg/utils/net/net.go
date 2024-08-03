@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 // WaitForServer waits for a gRPC server to start accepting connections on a socket.
@@ -41,11 +42,11 @@ func WaitForServer(socket string, timeout time.Duration, opts ...interface{}) er
 			dialOpts = append(dialOpts, o...)
 		case **grpc.ClientConn:
 			if connp != nil {
-				return fmt.Errorf("WaitForServer: multiple net.Conn pointer options given")
+				return fmt.Errorf("waitForServer: multiple net.Conn pointer options given")
 			}
 			connp = o
 		default:
-			return fmt.Errorf("WaitForServer: invalid option of type %T", o)
+			return fmt.Errorf("waitForServer: invalid option of type %T", o)
 		}
 	}
 
@@ -168,4 +169,40 @@ func isFatalDialError(err error) bool {
 
 		return true
 	}
+}
+
+func IsIPv6(netIP net.IP) bool {
+	return netIP != nil && netIP.To4() == nil
+}
+
+func IsValidForSet(isIPv6 bool, ip net.IP) bool {
+	if isIPv6 != IsIPv6(ip) {
+		return false
+	}
+	if isIPv6 && ip.IsLinkLocalUnicast() {
+		return false
+	}
+	if ip.IsLoopback() {
+		return false
+	}
+	return true
+}
+
+func AddressSet(isValid func(ip net.IP) bool, addrs []net.Addr) sets.String {
+	ips := sets.NewString()
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPAddr:
+			ip = v.IP
+		case *net.IPNet:
+			ip = v.IP
+		default:
+			continue
+		}
+		if isValid(ip) {
+			ips.Insert(ip.String())
+		}
+	}
+	return ips
 }

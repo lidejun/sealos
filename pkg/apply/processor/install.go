@@ -16,8 +16,8 @@ package processor
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"golang.org/x/sync/errgroup"
@@ -26,14 +26,16 @@ import (
 	"github.com/labring/sealos/pkg/buildah"
 	"github.com/labring/sealos/pkg/clusterfile"
 	"github.com/labring/sealos/pkg/config"
-	"github.com/labring/sealos/pkg/filesystem"
+	"github.com/labring/sealos/pkg/filesystem/rootfs"
 	"github.com/labring/sealos/pkg/guest"
-	runtime "github.com/labring/sealos/pkg/runtime"
+	"github.com/labring/sealos/pkg/runtime"
+	"github.com/labring/sealos/pkg/runtime/factory"
 	v2 "github.com/labring/sealos/pkg/types/v1beta1"
 	"github.com/labring/sealos/pkg/utils/confirm"
-	"github.com/labring/sealos/pkg/utils/images"
 	"github.com/labring/sealos/pkg/utils/logger"
+	"github.com/labring/sealos/pkg/utils/maps"
 	"github.com/labring/sealos/pkg/utils/rand"
+	stringsutil "github.com/labring/sealos/pkg/utils/strings"
 )
 
 var ForceOverride bool
@@ -45,6 +47,7 @@ type InstallProcessor struct {
 	Guest            guest.Interface
 	NewMounts        []v2.MountImage
 	NewImages        []string
+	ExtraEnvs        map[string]string // parsing from CLI arguments
 	imagesToOverride []string
 }
 
@@ -81,7 +84,7 @@ func (c *InstallProcessor) GetPipeLine() ([]func(cluster *v2.Cluster) error, err
 	return todoList, nil
 }
 
-func (c *InstallProcessor) SyncStatusAndCheck(cluster *v2.Cluster) error {
+func (c *InstallProcessor) SyncStatusAndCheck(_ *v2.Cluster) error {
 	logger.Info("Executing SyncStatusAndCheck Pipeline in InstallProcessor")
 	err := c.ClusterFile.Process()
 	if err != nil {
@@ -100,7 +103,7 @@ func (c *InstallProcessor) SyncStatusAndCheck(cluster *v2.Cluster) error {
 	return nil
 }
 
-func (c *InstallProcessor) ConfirmOverrideApps(cluster *v2.Cluster) error {
+func (c *InstallProcessor) ConfirmOverrideApps(_ *v2.Cluster) error {
 	logger.Info("Executing ConfirmOverrideApps Pipeline in InstallProcessor")
 
 	if ForceOverride || len(c.imagesToOverride) == 0 {
@@ -123,8 +126,7 @@ func (c *InstallProcessor) ConfirmOverrideApps(cluster *v2.Cluster) error {
 
 func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
 	logger.Info("Executing PreProcess Pipeline in InstallProcessor")
-	if err := c.Buildah.Pull(c.NewImages, buildah.WithPlatformOption(buildah.DefaultPlatform()),
-		buildah.WithPullPolicyOption(buildah.PullIfMissing.String())); err != nil {
+	if err := c.Buildah.Pull(c.NewImages, buildah.WithPullPolicyOption(buildah.PullIfMissing.String())); err != nil {
 		return err
 	}
 	imageTypes := sets.NewString()
@@ -134,27 +136,43 @@ func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
 			return err
 		}
 		if oci.OCIv1.Config.Labels != nil {
-			imageTypes.Insert(oci.OCIv1.Config.Labels[v2.ImageTypeKey])
+			imageTypes.Insert(maps.GetFromKeys(oci.OCIv1.Config.Labels, v2.ImageTypeKeys...))
 		} else {
 			imageTypes.Insert(string(v2.AppImage))
 		}
 	}
-	if imageTypes.Has(string(v2.PatchImage)) && !imageTypes.Has(string(v2.RootfsImage)) {
-		return errors.New("can't apply PatchImage only, need to init a Cluster to append it")
+	// This code ensures that `mount` always contains the latest `MountImage` instances from `cluster.Status.Mounts`
+	// and that each `ImageName` is represented by only one corresponding instance in `mounts`.
+	mountIndexes := make(map[string]int)
+	for i := range cluster.Status.Mounts {
+		mountIndexes[cluster.Status.Mounts[i].ImageName] = i
 	}
+
+	indexes := make([]int, 0)
+	for i := range mountIndexes {
+		indexes = append(indexes, mountIndexes[i])
+	}
+	sort.Ints(indexes)
+	mounts := make([]v2.MountImage, 0)
+	for i := range indexes {
+		mounts = append(mounts, cluster.Status.Mounts[i])
+	}
+	cluster.Status.Mounts = mounts
+
 	for _, img := range c.NewImages {
+		index, mount := cluster.FindImage(img)
 		var ctrName string
-		mount := cluster.FindImage(img)
 		if mount != nil {
 			if !ForceOverride {
 				continue
 			}
-			ctrName = mount.Name
 			logger.Debug("trying to override app %s", img)
-		} else {
-			ctrName = rand.Generator(8)
+			if err := c.Buildah.Delete(mount.Name); err != nil {
+				return err
+			}
 		}
-		cluster.Spec.Image = merge(cluster.Spec.Image, img)
+		ctrName = rand.Generator(8)
+		cluster.Spec.Image = stringsutil.Merge(cluster.Spec.Image, img)
 		bderInfo, err := c.Buildah.Create(ctrName, img)
 		if err != nil {
 			return err
@@ -165,48 +183,42 @@ func (c *InstallProcessor) PreProcess(cluster *v2.Cluster) error {
 			ImageName:  img,
 		}
 
-		if err = OCIToImageMount(mount, c.Buildah); err != nil {
+		if err = OCIToImageMount(c.Buildah, mount); err != nil {
 			return err
 		}
-		cluster.SetMountImage(mount)
+		mount.Env = maps.Merge(mount.Env, c.ExtraEnvs)
+		// This code ensures that `cluster.Status.Mounts` always contains the latest `MountImage` instances
+		if index >= 0 {
+			cluster.Status.Mounts = append(cluster.Status.Mounts[:index], cluster.Status.Mounts[index+1:]...)
+		}
+		cluster.Status.Mounts = append(cluster.Status.Mounts, *mount)
 		c.NewMounts = append(c.NewMounts, *mount)
 	}
-	runtime, err := runtime.NewDefaultRuntime(cluster, c.ClusterFile.GetKubeadmConfig())
+
+	rt, err := factory.New(cluster, c.ClusterFile.GetRuntimeConfig())
 	if err != nil {
 		return fmt.Errorf("failed to init runtime, %v", err)
 	}
-	c.Runtime = runtime
+	c.Runtime = rt
 	return nil
 }
 
 func (c *InstallProcessor) UpgradeIfNeed(cluster *v2.Cluster) error {
 	logger.Info("Executing UpgradeIfNeed Pipeline in InstallProcessor")
 	for _, img := range c.NewMounts {
-		version := images.GetKubeVersionFromImage(img)
+		version := img.KubeVersion()
 		if version == "" {
 			continue
 		}
-		logger.Debug("try Upgrade Cluster to %s", version)
-		err := c.Runtime.UpgradeCluster(version)
+		err := c.Runtime.Upgrade(version)
 		if err != nil {
-			logger.Info("upgrade cluster failed")
+			logger.Error("upgrade cluster failed")
 			return err
 		}
 		//upgrade success; replace the old cluster mount
 		cluster.ReplaceRootfsImage()
 	}
 	return nil
-}
-
-func merge(ss []string, s string) []string {
-	var ret []string
-	for i := range ss {
-		if ss[i] != s {
-			ret = append(ret, ss[i])
-		}
-	}
-	ret = append(ret, s)
-	return ret
 }
 
 func (c *InstallProcessor) PostProcess(*v2.Cluster) error {
@@ -218,7 +230,7 @@ func (c *InstallProcessor) PostProcess(*v2.Cluster) error {
 	return nil
 }
 
-func (c *InstallProcessor) RunConfig(cluster *v2.Cluster) error {
+func (c *InstallProcessor) RunConfig(_ *v2.Cluster) error {
 	if len(c.NewMounts) == 0 {
 		return nil
 	}
@@ -239,7 +251,7 @@ func (c *InstallProcessor) MountRootfs(cluster *v2.Cluster) error {
 		return nil
 	}
 	hosts := append(cluster.GetMasterIPAndPortList(), cluster.GetNodeIPAndPortList()...)
-	fs, err := filesystem.NewRootfsMounter(c.NewMounts)
+	fs, err := rootfs.NewRootfsMounter(c.NewMounts)
 	if err != nil {
 		return err
 	}
@@ -255,10 +267,10 @@ func (c *InstallProcessor) RunGuest(cluster *v2.Cluster) error {
 	if len(c.NewMounts) == 0 {
 		return nil
 	}
-	return c.Guest.Apply(cluster, c.NewMounts)
+	return c.Guest.Apply(cluster, c.NewMounts, cluster.GetAllIPS())
 }
 
-func NewInstallProcessor(clusterFile clusterfile.Interface, images []string) (Interface, error) {
+func NewInstallProcessor(ctx context.Context, clusterFile clusterfile.Interface, images []string) (Interface, error) {
 	bder, err := buildah.New(clusterFile.GetCluster().Name)
 	if err != nil {
 		return nil, err
@@ -274,5 +286,6 @@ func NewInstallProcessor(clusterFile clusterfile.Interface, images []string) (In
 		Buildah:     bder,
 		Guest:       gs,
 		NewImages:   images,
+		ExtraEnvs:   GetEnvs(ctx),
 	}, nil
 }

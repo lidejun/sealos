@@ -23,6 +23,7 @@ import (
 	"github.com/imdario/mergo"
 	"sigs.k8s.io/yaml"
 
+	"github.com/labring/sealos/pkg/clusterfile"
 	"github.com/labring/sealos/pkg/constants"
 	"github.com/labring/sealos/pkg/types/v1beta1"
 	"github.com/labring/sealos/pkg/utils/file"
@@ -57,6 +58,16 @@ type Dumper struct {
 }
 
 func NewConfiguration(name, rootPath string, configs []v1beta1.Config) Interface {
+	defaultConfigFile := filepath.Join(rootPath, constants.DefaultRootfsConfigFileName)
+	if file.IsExist(defaultConfigFile) {
+		cfgs, err := clusterfile.Configs(defaultConfigFile)
+		if err != nil {
+			logger.Error("failed to parse default config file %s, %v", defaultConfigFile, err)
+			cfgs = []v1beta1.Config{}
+		}
+		configs = append(cfgs, configs...)
+	}
+
 	return &Dumper{
 		RootPath: rootPath,
 		name:     name,
@@ -66,7 +77,7 @@ func NewConfiguration(name, rootPath string, configs []v1beta1.Config) Interface
 
 func NewDefaultConfiguration(clusterName string) Interface {
 	return &Dumper{
-		RootPath: constants.NewData(clusterName).RootFSPath(),
+		RootPath: constants.NewPathResolver(clusterName).RootFSPath(),
 	}
 }
 
@@ -89,28 +100,17 @@ func (c *Dumper) WriteFiles() (err error) {
 		}
 		configData := []byte(config.Spec.Data)
 		configPath := filepath.Join(c.RootPath, config.Spec.Path)
-		//only the YAML format is supported
+		// only the YAML format is supported
 		switch config.Spec.Strategy {
 		case v1beta1.Merge:
 			configData, err = getMergeConfigData(configPath, configData)
-			if err != nil {
-				return err
-			}
 		case v1beta1.Insert:
 			configData, err = getAppendOrInsertConfigData(configPath, configData, true)
-			if err != nil {
-				return err
-			}
 		case v1beta1.Append:
 			configData, err = getAppendOrInsertConfigData(configPath, configData, false)
-			if err != nil {
-				return err
-			}
-		case v1beta1.Override:
-			configData, err = getOverrideConfigData(configPath, configData)
-			if err != nil {
-				return err
-			}
+		}
+		if err != nil {
+			return err
 		}
 		err = file.WriteFile(configPath, configData)
 		if err != nil {
@@ -156,8 +156,7 @@ func getMergeConfigData(path string, data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("failed to unmarshal config: %v", err)
 		}
 		if err := mergo.Merge(&configMap, &mergeConfigMap,
-			mergo.WithOverwriteWithEmptyValue, mergo.WithOverrideEmptySlice,
-			mergo.WithAppendSlice, mergo.WithTypeCheck, mergo.WithSliceDeepCopy,
+			mergo.WithOverwriteWithEmptyValue, mergo.WithTypeCheck,
 		); err != nil {
 			return nil, fmt.Errorf("merge: %v", err)
 		}
@@ -169,8 +168,4 @@ func getMergeConfigData(path string, data []byte) ([]byte, error) {
 		configs = append(configs, cfg)
 	}
 	return bytes.Join(configs, []byte("\n---\n")), nil
-}
-
-func getOverrideConfigData(path string, data []byte) ([]byte, error) {
-	return data, nil
 }

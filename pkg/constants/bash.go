@@ -19,75 +19,84 @@ package constants
 import "fmt"
 
 const (
-	DefaultBashFmt      = "cd %s && bash %s"
-	DefaultCPFmt        = "mkdir -p %s && cp -rf  %s/* %s/"
-	DefaultLnFmt        = "ln -s %s %s"
+	DefaultBashFmt      = "cd %s && %s"
+	DefaultLnFmt        = "rm -rf %[2]s && ln -s %[1]s %[2]s"
 	CdAndExecCmd        = "cd %s && %s"
 	renderInit          = "init"
 	renderClean         = "clean"
+	renderInitCRI       = "init-cri"
+	renderCleanCRI      = "clean-cri"
 	renderInitRegistry  = "init-registry"
 	renderCleanRegistry = "clean-registry"
-	renderAuth          = "auth"
 	renderCheck         = "check"
 	DefaultChmodBash    = "cd %s && chmod -R 0755 *"
 )
 
 type Bash interface {
-	InitBash() string
-	CleanBash() string
-	AuthBash() string
-	InitRegistryBash() string
-	CleanRegistryBash() string
-	CheckBash() string
+	InitBash(host string) string
+	CleanBash(host string) string
+	InitRegistryBash(host string) string
+	CleanRegistryBash(host string) string
+	CheckBash(host string) string
+	InitCRIBash(host string) string
+	CleanCRIBash(host string) string
+	WrapBash(host string, shell string) string
 }
 
 type bash struct {
-	data   Data
-	render map[string]string
+	pathResolver  PathResolver
+	renderContext map[string]string
+	wrap          func(string, string) string
 }
 
-func (b *bash) CheckBash() string {
-	if val, ok := b.render[renderCheck]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
+func (b *bash) getFromRenderContextOrDefault(key string) string {
+	if val, ok := b.renderContext[key]; ok {
+		return fmt.Sprintf("bash %s", val)
 	}
-	return "check.sh"
+	return fmt.Sprintf("bash %s.sh", key)
 }
 
-func (b *bash) InitBash() string {
-	if val, ok := b.render[renderInit]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
+func (b *bash) getFromRenderContext(key string) string {
+	if val, ok := b.renderContext[key]; ok {
+		return fmt.Sprintf("bash %s", val)
 	}
-	return "init.sh"
+	return ""
 }
 
-func (b *bash) CleanBash() string {
-	if val, ok := b.render[renderClean]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
+func (b *bash) WrapBash(host, shell string) string {
+	if shell == "" {
+		return ""
 	}
-	return "clean.sh"
+	return fmt.Sprintf(DefaultBashFmt, b.pathResolver.RootFSScriptsPath(), b.wrap(host, shell))
 }
 
-func (b *bash) AuthBash() string {
-	if val, ok := b.render[renderAuth]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
-	}
-	return "auth.sh"
+func (b *bash) CheckBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContextOrDefault(renderCheck))
 }
 
-func (b *bash) InitRegistryBash() string {
-	if val, ok := b.render[renderInitRegistry]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
-	}
-	return "init-registry.sh"
+func (b *bash) InitBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContextOrDefault(renderInit))
 }
 
-func (b *bash) CleanRegistryBash() string {
-	if val, ok := b.render[renderCleanRegistry]; ok {
-		return fmt.Sprintf(DefaultBashFmt, b.data.RootFSScriptsPath(), val)
-	}
-	return "clean-registry.sh"
+func (b *bash) CleanBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContextOrDefault(renderClean))
 }
 
-func NewBash(clusterName string, render map[string]string) Bash {
-	return &bash{data: NewData(clusterName), render: render}
+func (b *bash) InitRegistryBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContextOrDefault(renderInitRegistry))
+}
+
+func (b *bash) CleanRegistryBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContextOrDefault(renderCleanRegistry))
+}
+
+func (b *bash) InitCRIBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContext(renderInitCRI))
+}
+func (b *bash) CleanCRIBash(host string) string {
+	return b.WrapBash(host, b.getFromRenderContext(renderCleanCRI))
+}
+
+func NewBash(clusterName string, renderContext map[string]string, shellWrapper func(string, string) string) Bash {
+	return &bash{pathResolver: NewPathResolver(clusterName), renderContext: renderContext, wrap: shellWrapper}
 }

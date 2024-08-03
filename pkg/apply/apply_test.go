@@ -20,6 +20,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/labring/sealos/pkg/apply/applydrivers"
 )
 
@@ -60,10 +62,23 @@ func Test_NewApplierFromFile(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "Success_EmptyHostsAndSSH",
+			args: args{
+				customEnv: nil,
+				sets: []string{
+					"clusterName=default",
+				},
+				values: []string{"../clusterfile/testdata/emptyHostsAndSSH.values.yaml"},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewApplierFromFile("../clusterfile/testdata/clusterfile.yaml",
+			_, err := NewApplierFromFile(&cobra.Command{
+				Use: "mock",
+			}, "../clusterfile/testdata/clusterfile.yaml",
 				&Args{
 					Values:    tt.args.values,
 					Sets:      tt.args.sets,
@@ -92,7 +107,9 @@ func TestNewApplierFromFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewApplierFromFile(tt.args.path, tt.args.args)
+			got, err := NewApplierFromFile(&cobra.Command{
+				Use: "mock",
+			}, tt.args.path, tt.args.args)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewApplierFromFile() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -15,57 +15,75 @@
 package buildah
 
 import (
-	"path"
+	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/labring/sreg/pkg/registry/crane"
+	"github.com/labring/sreg/pkg/registry/save"
+
 	"github.com/containerd/containerd/platforms"
 	"github.com/containers/buildah/pkg/parse"
+	"github.com/containers/image/v5/types"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/labring/sealos/pkg/buildimage"
+	"github.com/labring/sreg/pkg/buildimage"
+
 	"github.com/labring/sealos/pkg/constants"
-	"github.com/labring/sealos/pkg/registry"
 	"github.com/labring/sealos/pkg/utils/logger"
 )
 
-type saveOptions struct {
+type saverOptions struct {
 	maxPullProcs int
 	enabled      bool
 }
 
-func (opts *saveOptions) RegisterFlags(fs *pflag.FlagSet) {
+func (opts *saverOptions) RegisterFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&opts.maxPullProcs, "max-pull-procs", 5, "maximum number of goroutines for pulling")
-	fs.BoolVar(&opts.enabled, "save-image", true, "save images parsed to local")
+	fs.BoolVar(&opts.enabled, "save-image", true, "store images that parsed from the specific directories")
 }
 
-func runSaveImages(contextDir string, platforms []v1.Platform, opts *saveOptions) error {
+func runSaveImages(contextDir string, platforms []v1.Platform, sys *types.SystemContext, opts *saverOptions) error {
 	if !opts.enabled {
 		logger.Warn("save-image is disabled, skip pulling images")
 		return nil
 	}
+	registryDir := filepath.Join(contextDir, constants.RegistryDirName)
 	images, err := buildimage.List(contextDir)
 	if err != nil {
 		return err
 	}
-	if len(images) == 0 {
-		return nil
-	}
-	auths, err := registry.GetAuthInfo()
+	tars, err := buildimage.TarList(contextDir)
 	if err != nil {
 		return err
 	}
-	is := registry.NewImageSaver(getContext(), opts.maxPullProcs, auths)
+	if len(images) == 0 && len(tars) == 0 {
+		return nil
+	}
+	auths, err := crane.GetAuthInfo(sys)
+	if err != nil {
+		return err
+	}
+	is := save.NewImageSaver(getContext(), opts.maxPullProcs, auths)
+	isTar := save.NewImageTarSaver(getContext(), opts.maxPullProcs)
 	for _, pf := range platforms {
-		logger.Debug("pull images %v for platform %s", images, strings.Join([]string{pf.OS, pf.Architecture}, "/"))
-		images, err = is.SaveImages(images, path.Join(contextDir, constants.RegistryDirName), pf)
-		if err != nil {
-			return errors.Wrap(err, "failed to save images")
+		if len(images) != 0 {
+			images, err = is.SaveImages(images, registryDir, pf)
+			if err != nil {
+				return fmt.Errorf("failed to save images: %w", err)
+			}
+			logger.Info("saving images %s", strings.Join(images, ", "))
 		}
-		logger.Info("saving images %s", strings.Join(images, ", "))
+		if len(tars) != 0 {
+			tars, err = isTar.SaveImages(tars, registryDir, pf)
+			if err != nil {
+				return fmt.Errorf("failed to save tar images: %w", err)
+			}
+			logger.Info("saving tar images %s", strings.Join(tars, ", "))
+		}
 	}
 	return nil
 }

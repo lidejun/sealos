@@ -32,7 +32,7 @@ func newApplyCmd() *cobra.Command {
 		Example: `sealos apply -f Clusterfile`,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applier, err := apply.NewApplierFromFile(clusterFile, applyArgs)
+			applier, err := apply.NewApplierFromFile(cmd, clusterFile, applyArgs)
 			if err != nil {
 				return err
 			}
@@ -42,11 +42,8 @@ func newApplyCmd() *cobra.Command {
 			logger.Info(getContact())
 		},
 	}
+	setRequireBuildahAnnotation(applyCmd)
 	applyCmd.Flags().StringVarP(&clusterFile, "Clusterfile", "f", "Clusterfile", "apply a kubernetes cluster")
 	applyArgs.RegisterFlags(applyCmd.Flags())
 	return applyCmd
-}
-
-func init() {
-	rootCmd.AddCommand(newApplyCmd())
 }

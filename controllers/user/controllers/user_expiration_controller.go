@@ -18,17 +18,18 @@ package controllers
 
 import (
 	"context"
+	"errors"
 
-	"github.com/pkg/errors"
+	utilcontroller "github.com/labring/operator-sdk/controller"
 
 	"github.com/go-logr/logr"
-	"github.com/labring/endpoints-operator/library/controller"
-	userv1 "github.com/labring/sealos/controllers/user/api/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	userv1 "github.com/labring/sealos/controllers/user/api/v1"
 )
 
 // UserExpirationReconciler reconciles a Secret object
@@ -38,12 +39,8 @@ type UserExpirationReconciler struct {
 	config   *rest.Config
 	*runtime.Scheme
 	client.Client
-	finalizer *controller.Finalizer
+	finalizer *utilcontroller.Finalizer
 }
-
-//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=secrets/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=core,resources=secrets/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -61,7 +58,7 @@ func (r *UserExpirationReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if ok, err := r.finalizer.RemoveFinalizer(ctx, user, controller.DefaultFunc); ok {
+	if ok, err := r.finalizer.RemoveFinalizer(ctx, user, utilcontroller.DefaultFunc); ok {
 		return ctrl.Result{}, err
 	}
 
@@ -85,7 +82,7 @@ func (r *UserExpirationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.Recorder = mgr.GetEventRecorderFor(controllerName)
 	}
 	if r.finalizer == nil {
-		r.finalizer = controller.NewFinalizer(r.Client, "sealos.io/user.expiration.finalizers")
+		r.finalizer = utilcontroller.NewFinalizer(r.Client, "sealos.io/user.expiration.finalizers")
 	}
 	r.Scheme = mgr.GetScheme()
 	r.config = mgr.GetConfig()
@@ -95,7 +92,7 @@ func (r *UserExpirationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *UserExpirationReconciler) reconcile(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+func (r *UserExpirationReconciler) reconcile(_ context.Context, _ client.Object) (ctrl.Result, error) {
 	//TODO add  Expiration logic
 	return ctrl.Result{}, nil
 }

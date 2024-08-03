@@ -10,6 +10,7 @@ run:
   skip-dirs-use-default: true
   skip-dirs:
     - (^|/)fork($|/)
+    - pkg/registry/save/lib/
   modules-download-mode: readonly
 
 linters:

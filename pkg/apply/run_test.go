@@ -18,8 +18,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/labring/sealos/pkg/clusterfile"
+	"github.com/labring/sealos/pkg/constants"
+	"github.com/labring/sealos/pkg/ssh"
+	"github.com/labring/sealos/pkg/utils/iputils"
 
 	"github.com/labring/sealos/pkg/apply/applydrivers"
 	v2 "github.com/labring/sealos/pkg/types/v1beta1"
@@ -74,7 +79,6 @@ func TestClusterArgs_SetClusterRunArgs(t *testing.T) {
 					CustomCMD: []string{
 						"echo hello",
 					},
-					fs: pflag.NewFlagSet("test", pflag.ExitOnError),
 				},
 			},
 			wantErr: false,
@@ -87,7 +91,9 @@ func TestClusterArgs_SetClusterRunArgs(t *testing.T) {
 				hosts:       tt.fields.hosts,
 				clusterName: tt.fields.clusterName,
 			}
-			if err := r.runArgs(tt.args.imageList, tt.args.runArgs); (err != nil) != tt.wantErr {
+			if err := r.runArgs(&cobra.Command{
+				Use: "mock",
+			}, tt.args.runArgs, tt.args.imageList); (err != nil) != tt.wantErr {
 				t.Errorf("runArgs() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -124,6 +130,8 @@ func TestClusterArgs_setHostWithIpsPort(t *testing.T) {
 }
 
 func TestNewApplierFromArgs(t *testing.T) {
+	addr, _ := iputils.ListLocalHostAddrs()
+	Default := "Default"
 	type args struct {
 		imageName []string
 		args      *RunArgs
@@ -135,10 +143,49 @@ func TestNewApplierFromArgs(t *testing.T) {
 		wantErr bool
 	}{
 		// TODO: Add test cases.
+		{
+			name: "test set master ip in single mode",
+			args: args{
+				imageName: []string{"labring/kubernetes:v1.24.0"},
+				args: &RunArgs{
+					Cluster: &Cluster{
+						Masters:     "",
+						Nodes:       "",
+						ClusterName: Default,
+					},
+				},
+			},
+			want: &applydrivers.Applier{
+				ClusterDesired: &v2.Cluster{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Cluster",
+						APIVersion: v2.SchemeGroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        Default,
+						Annotations: map[string]string{},
+					},
+					Spec: v2.ClusterSpec{
+						Hosts: []v2.Host{
+							{IPS: []string{iputils.LocalIP(addr) + ":22"}, Roles: []string{v2.MASTER, GetHostArch(ssh.MustNewClient(&v2.SSH{}, true), iputils.LocalIP(addr)+":22")}},
+						},
+						Image: []string{"labring/kubernetes:v1.24.0"},
+						SSH:   v2.SSH{},
+					},
+					Status: v2.ClusterStatus{},
+				},
+				ClusterFile:    clusterfile.NewClusterFile(constants.Clusterfile(Default)),
+				ClusterCurrent: nil,
+				RunNewImages:   []string{"labring/kubernetes:v1.24.0"},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewApplierFromArgs(tt.args.imageName, tt.args.args)
+			got, err := NewApplierFromArgs(&cobra.Command{
+				Use: "mock",
+			}, tt.args.args, tt.args.imageName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewApplierFromArgs() error = %v, wantErr %v", err, tt.wantErr)
 				return

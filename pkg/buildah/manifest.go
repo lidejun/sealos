@@ -123,10 +123,9 @@ func newManifestCommand() *cobra.Command {
 		manifestPushOpts            pushOptions
 	)
 	manifestCommand := &cobra.Command{
-		Use:    "manifest",
-		Hidden: true,
-		Short:  "Manipulate manifest lists and image indexes",
-		Long:   manifestDescription,
+		Use:   "manifest",
+		Short: "Manipulate manifest lists and image indexes",
+		Long:  manifestDescription,
 		Example: fmt.Sprintf(`%[1]s manifest create localhost/list
   %[1]s manifest add localhost/list localhost/image
   %[1]s manifest annotate --annotation A=B localhost/list localhost/image
@@ -306,7 +305,7 @@ func manifestCreateCmd(c *cobra.Command, args []string, opts manifestCreateOpts)
 	listImageSpec := args[0]
 	imageSpecs := args[1:]
 
-	if err := setDefaultFlags(c); err != nil {
+	if err := setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag); err != nil {
 		return err
 	}
 	store, err := getStore(c)
@@ -384,7 +383,7 @@ func manifestAddCmd(c *cobra.Command, args []string, opts manifestAddOpts) error
 	if err := auth.CheckAuthFile(opts.authfile); err != nil {
 		return err
 	}
-	if err := setDefaultFlags(c); err != nil {
+	if err := setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag); err != nil {
 		return err
 	}
 
@@ -507,7 +506,7 @@ func manifestAddCmd(c *cobra.Command, args []string, opts manifestAddOpts) error
 	return err
 }
 
-func manifestRemoveCmd(c *cobra.Command, args []string, opts manifestRemoveOpts) error {
+func manifestRemoveCmd(c *cobra.Command, args []string, _ manifestRemoveOpts) error {
 	listImageSpec := ""
 	var instanceDigest digest.Digest
 	switch len(args) {
@@ -718,7 +717,7 @@ func manifestAnnotateCmd(c *cobra.Command, args []string, opts manifestAnnotateO
 	return nil
 }
 
-func manifestInspectCmd(c *cobra.Command, args []string, opts manifestInspectOpts) error {
+func manifestInspectCmd(c *cobra.Command, args []string, _ manifestInspectOpts) error {
 	imageSpec := ""
 	switch len(args) {
 	case 0:
@@ -846,7 +845,7 @@ func manifestPushCmd(c *cobra.Command, args []string, opts pushOptions) error {
 	if err := auth.CheckAuthFile(opts.authfile); err != nil {
 		return err
 	}
-	if err := setDefaultFlags(c); err != nil {
+	if err := setDefaultFlagsWithSetters(c, setDefaultTLSVerifyFlag); err != nil {
 		return err
 	}
 

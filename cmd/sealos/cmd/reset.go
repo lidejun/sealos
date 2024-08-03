@@ -47,7 +47,7 @@ func newResetCmd() *cobra.Command {
 				}
 				return err
 			}
-			applier, err := apply.NewApplierFromResetArgs(resetArgs)
+			applier, err := apply.NewApplierFromResetArgs(cmd, resetArgs)
 			if err != nil {
 				return err
 			}
@@ -57,11 +57,8 @@ func newResetCmd() *cobra.Command {
 			logger.Info(getContact())
 		},
 	}
+	setRequireBuildahAnnotation(resetCmd)
 	resetArgs.RegisterFlags(resetCmd.Flags())
 	resetCmd.Flags().BoolVar(&processor.ForceDelete, "force", false, "we also can input an --force flag to reset cluster by force")
 	return resetCmd
-}
-
-func init() {
-	rootCmd.AddCommand(newResetCmd())
 }

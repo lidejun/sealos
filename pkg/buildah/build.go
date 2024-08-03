@@ -42,7 +42,7 @@ func newBuildCommand() *cobra.Command {
 	fromAndBudResults := buildahcli.FromAndBudResults{}
 	userNSResults := buildahcli.UserNSResults{}
 	namespaceResults := buildahcli.NameSpaceResults{}
-	sopts := saveOptions{}
+	sopts := saverOptions{}
 
 	buildCommand := &cobra.Command{
 		Use:     "build [CONTEXT]",
@@ -84,11 +84,13 @@ func newBuildCommand() *cobra.Command {
 	flags.SetNormalizeFunc(buildahcli.AliasFlags)
 
 	bailOnError(markFlagsHidden(flags, "tls-verify"), "")
+	bailOnError(markFlagsHidden(flags, append(flagsInBuildCommandToBeHidden(), flagsAssociatedWithPlatform()...)...), "")
+	buildCommand.SetUsageTemplate(UsageTemplate())
 
 	return buildCommand
 }
 
-func buildCmd(c *cobra.Command, inputArgs []string, sopts saveOptions, iopts buildahcli.BuildOptions) error {
+func buildCmd(c *cobra.Command, inputArgs []string, sopts saverOptions, iopts buildahcli.BuildOptions) error {
 	if flagChanged(c, "logfile") {
 		logfile, err := os.OpenFile(iopts.Logfile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if err != nil {
@@ -144,7 +146,7 @@ func buildCmd(c *cobra.Command, inputArgs []string, sopts saveOptions, iopts bui
 	if err != nil {
 		return err
 	}
-	if err = runSaveImages(options.ContextDirectory, platforms, &sopts); err != nil {
+	if err = runSaveImages(options.ContextDirectory, platforms, options.SystemContext, &sopts); err != nil {
 		return err
 	}
 	if globalFlagResults.DefaultMountsFile != "" {
